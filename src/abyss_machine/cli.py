@@ -483,6 +483,7 @@ STORAGE_CANDIDATES_NOTIFICATION_ROOT = STORAGE_CANDIDATES_ROOT / "notifications"
 STORAGE_CANDIDATES_NOTIFICATION_LATEST_PATH = STORAGE_CANDIDATES_NOTIFICATION_ROOT / "latest.json"
 STORAGE_LIFECYCLE_ROOT = path_from_env("ABYSS_MACHINE_STORAGE_LIFECYCLE_ROOT", STORAGE_STATE_ROOT / "lifecycle")
 STORAGE_BACKUP_LANES_ROOT = path_from_env("ABYSS_MACHINE_BACKUP_LANES_ROOT", STATE_DIR / "backup" / "lanes")
+RESOURCE_LAUNCH_MAX_ATTESTATION_REFRESH_RETRIES = 3
 ARTIFACTS_ROOT = STATE_DIR / "artifacts"
 ARTIFACTS_AGENTS_PATH = ARTIFACTS_ROOT / "AGENTS.md"
 ARTIFACTS_INDEX_PATH = ARTIFACTS_ROOT / "index.json"
@@ -19500,11 +19501,12 @@ def resource_launch(
         generated_unit = resource_generated_unit_name(kind, workload_class, unit_type)
         launch_unit = generated_unit
     storage_reservation_requested = bytes_required is not None or target is not None
-    storage_reservation_pair_valid = (
-        bytes_required is not None
+    storage_reservation_pair_valid = bool(
+        storage_reservation_requested
+        and bytes_required is not None
         and bool(str(target or "").strip())
         and int(bytes_required) >= 0
-    ) if bytes_required is not None else not storage_reservation_requested
+    )
     storage_reservation_input_error: str | None = None
     if storage_reservation_requested and not storage_reservation_pair_valid:
         if bytes_required is None or not str(target or "").strip():
@@ -19539,6 +19541,7 @@ def resource_launch(
     lease: dict[str, Any] | None = None
     lease_path: Path | None = None
     lease_released = False
+    prelaunch_cleanup_errors: list[str] = []
     reservation_snapshot: dict[str, Any] = resource_adapters.reservation_snapshot(reservation_root, cleanup=False)
     effective_sample_thermal = (
         resource_planning.should_sample_thermal(
@@ -19551,9 +19554,13 @@ def resource_launch(
         1.0,
         float(startup_policy.get("launch_attestation_max_age_sec", 120.0)),
     )
-    # Live-input coalescing bounds reuse of those inputs; it must not shorten
-    # the launch freshness policy or make an atomic plan invalidate its own
-    # attestation when plan assembly takes longer than the coalesce interval.
+    # The live-input coalescing horizon only controls reuse of the
+    # subsecond memory and game-guard snapshots.  It is not the validity
+    # period for the request-specific thermal/storage attestation DAG.  Keep
+    # that receipt on the independent startup-admission policy TTL so a
+    # normal plan that takes longer than cache coalescing does not refresh
+    # forever, while the final age check still refreshes genuinely expired
+    # evidence before admission.
     launch_attestation_max_age_sec = configured_launch_attestation_max_age_sec
     launch_attestations_required = bool(
         effective_sample_thermal
@@ -19562,10 +19569,14 @@ def resource_launch(
     launch_attestation_collected_at = time.monotonic()
     launch_attestation_rounds: list[dict[str, Any]] = []
     launch_attestation_refresh_count = 0
+    launch_attestation_refresh_retries_used = 0
+    launch_attestation_refresh_exhausted = False
+    launch_attestation_refresh_pending = False
     admission_lock_wait_sec = 0.0
     admission_lock_held_sec = 0.0
     admission_lock_attempts = 0
     attestation_age_at_admission_sec: float | None = None
+    attestation_age_before_execute_sec: float | None = None
 
     plan_kwargs = {
         "workload_class": workload_class,
@@ -19702,13 +19713,31 @@ def resource_launch(
             }
         )
 
+    def refresh_launch_attestations_with_budget() -> bool:
+        nonlocal launch_attestation_refresh_retries_used
+        if (
+            launch_attestation_refresh_retries_used
+            >= RESOURCE_LAUNCH_MAX_ATTESTATION_REFRESH_RETRIES
+        ):
+            return False
+        launch_attestation_refresh_retries_used += 1
+        collect_launch_attestations()
+        return True
+
     if not dry_run and clean_command and launch_attestations_required:
         collect_launch_attestations()
 
+    plan: dict[str, Any] = {}
     if dry_run or not clean_command:
         plan = resource_plan(**plan_kwargs, reservation_data=reservation_snapshot)
     else:
         while True:
+            if launch_attestation_refresh_pending:
+                launch_attestation_refresh_pending = False
+                if not refresh_launch_attestations_with_budget():
+                    launch_attestation_refresh_exhausted = True
+                    break
+                continue
             if (
                 launch_attestations_required
                 and (
@@ -19717,7 +19746,8 @@ def resource_launch(
                     > launch_attestation_max_age_sec
                 )
             ):
-                collect_launch_attestations()
+                launch_attestation_refresh_pending = True
+                continue
             should_wait = False
             refresh_attestations = False
             wait_started = time.monotonic()
@@ -19764,6 +19794,7 @@ def resource_launch(
                             )
                         ):
                             refresh_attestations = True
+                            launch_attestation_refresh_pending = True
                             continue
                         attestation_age_at_admission_sec = attestation_age
                         blocked_now = list(plan.get("blocked_reasons") or [])
@@ -19948,7 +19979,7 @@ def resource_launch(
                         time.monotonic() - lock_acquired_at,
                     )
             if refresh_attestations:
-                collect_launch_attestations()
+                launch_attestation_refresh_pending = True
                 continue
             if not should_wait:
                 break
@@ -19956,8 +19987,17 @@ def resource_launch(
             time.sleep(min(0.25, max(0.0, wait_deadline - time.monotonic())))
             waited_sec += max(0.0, time.monotonic() - wait_started)
 
+    if not plan:
+        plan = {
+            "ok": False,
+            "decision": "deny",
+            "blocked_reasons": [],
+            "denied_reasons": [],
+        }
     blocked = list(plan.get("blocked_reasons") or [])
     denied = list(plan.get("denied_reasons") or [])
+    if launch_attestation_refresh_exhausted:
+        denied.append("launch_attestation_refresh_exhausted")
     if storage_reservation_input_error:
         denied.append(storage_reservation_input_error)
     if (
@@ -19998,7 +20038,11 @@ def resource_launch(
                     "unit": launch_unit,
                 },
             }
-        except (OSError, TypeError, ValueError) as exc:
+            if storage_reservation_release.get("ok") is not True:
+                prelaunch_cleanup_errors.append(
+                    "storage_reservation_release_failed"
+                )
+        except (OSError, TypeError, ValueError, RuntimeError) as exc:
             storage_reservation_release = {
                 "requested": True,
                 "ok": False,
@@ -20013,6 +20057,7 @@ def resource_launch(
                     "unit": launch_unit,
                 },
             }
+            prelaunch_cleanup_errors.append("storage_reservation_release_failed")
 
     def release_prelaunch_memory_lease() -> None:
         """Match the storage cleanup when post-admission validation denies launch."""
@@ -20020,11 +20065,27 @@ def resource_launch(
         if not isinstance(lease, dict):
             return
         lease_id = str(lease.get("id") or "")
-        if lease_id:
-            resource_adapters.remove_lease(reservation_root, lease_id)
+        removed = False
+        try:
+            if lease_id:
+                removed = resource_adapters.remove_lease(
+                    reservation_root,
+                    lease_id,
+                )
+                if not removed and not resource_adapters.lease_path(
+                    reservation_root,
+                    lease_id,
+                ).exists():
+                    removed = True
+        except (OSError, TypeError, ValueError, RuntimeError):
+            prelaunch_cleanup_errors.append("startup_lease_release_failed")
+        if not lease_id:
+            prelaunch_cleanup_errors.append("startup_lease_identity_missing")
+        elif not removed:
+            prelaunch_cleanup_errors.append("startup_lease_release_failed")
         lease = None
         lease_path = None
-        lease_released = True
+        lease_released = removed
 
     if denied or blocked:
         # Input validation can fail after the shared admission section (for
@@ -20034,6 +20095,7 @@ def resource_launch(
         release_prelaunch_memory_lease()
 
     workspace_lifecycle: dict[str, Any] | None = None
+    workspace_failure_cleanup: dict[str, Any] | None = None
     if bool(workspace_path) != bool(workspace_owner):
         denied.append("managed_workspace_path_and_owner_required_together")
         release_prelaunch_storage_reservation()
@@ -20067,7 +20129,107 @@ def resource_launch(
             denied.append("managed_workspace_registration_failed")
             release_prelaunch_storage_reservation()
             release_prelaunch_memory_lease()
-    systemd_cmd = resource_systemd_command(plan, clean_command, unit=launch_unit, same_dir=same_dir) if clean_command else []
+
+    def preserve_managed_workspace_after_failure(
+        reason: str,
+        *,
+        execution_started: bool | None = False,
+        execution_status: str | None = None,
+        stage: str = "pre_execute",
+        cleanup_errors: list[str] | None = None,
+        cleanup_report: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        """Seal this invocation's workspace and preserve it for owner review."""
+        nonlocal workspace_failure_cleanup
+        if not isinstance(workspace_lifecycle, dict):
+            return None
+        workspace_id = str(workspace_lifecycle.get("workspace_id") or "")
+        failure = {
+            "reason": str(reason),
+            "stage": stage,
+            "execution_started": execution_started,
+            "execution_status": execution_status or (
+                "not_started" if execution_started is False else "unknown"
+            ),
+            "preserved": True,
+            "cleanup_errors": list(cleanup_errors or []),
+            "cleanup_report": dict(cleanup_report or {}),
+        }
+        try:
+            sealed = storage_lifecycle_adapters.seal_registered_workspace(
+                STORAGE_LIFECYCLE_ROOT,
+                workspace_id=workspace_id,
+                lease_token=str(workspace_lifecycle.get("lease_token") or ""),
+                preserved_failure=failure,
+            )
+        except (OSError, TypeError, ValueError, RuntimeError) as exc:
+            sealed = {"ok": False, "errors": [str(exc)[:500]]}
+        record = sealed.get("record") if isinstance(sealed.get("record"), dict) else {}
+        disposition = record.get("disposition") if isinstance(record.get("disposition"), dict) else {}
+        workspace_failure_cleanup = {
+            "attempted": True,
+            "ok": bool(
+                sealed.get("ok") is True
+                and record.get("state") == "sealed"
+                and disposition.get("decision") == "UNKNOWN"
+                and disposition.get("released") is False
+            ),
+            "workspace_id": workspace_id,
+            "path": workspace_lifecycle.get("path"),
+            "owner": workspace_lifecycle.get("owner"),
+            "state": record.get("state"),
+            "disposition": {
+                "decision": disposition.get("decision"),
+                "released": disposition.get("released"),
+                "failure": disposition.get("failure"),
+            },
+            "execution_started": execution_started,
+            "execution_status": execution_status or (
+                "not_started" if execution_started is False else "unknown"
+            ),
+            "auto_deleted": False,
+            "reason": str(reason),
+            "cleanup_errors": list(cleanup_errors or []),
+            "errors": [str(item) for item in sealed.get("errors", []) if str(item)],
+        }
+        return workspace_failure_cleanup
+
+    # A bounded freshness denial must not spend command-preparation work (or
+    # derive an argv that could be mistaken for an admitted launch).  The
+    # direct stale-just-before-execute regression still exercises preparation
+    # because it reaches this point with no denial yet.
+    systemd_cmd = (
+        resource_systemd_command(plan, clean_command, unit=launch_unit, same_dir=same_dir)
+        if clean_command and not denied and not blocked
+        else []
+    )
+    if launch_attestations_required:
+        attestation_age_before_execute_sec = max(
+            0.0,
+            time.monotonic() - launch_attestation_collected_at,
+        )
+        if (
+            not denied
+            and not blocked
+            and attestation_age_before_execute_sec
+            > launch_attestation_max_age_sec
+        ):
+            # Lease and storage admission happened against a bounded receipt,
+            # but command preparation can still consume the remaining TTL.
+            # Deny before systemd-run and release only capabilities acquired
+            # by this invocation; a stale receipt must never become a launch
+            # claim merely because the final command was ready.
+            denied.append("launch_attestation_expired_before_execute")
+            release_prelaunch_storage_reservation()
+            release_prelaunch_memory_lease()
+    workspace_failure_reason = str(denied[0]) if denied else "pre_execute_denial"
+    for cleanup_error in prelaunch_cleanup_errors:
+        if cleanup_error not in denied:
+            denied.append(cleanup_error)
+    if denied and workspace_lifecycle:
+        cleanup = preserve_managed_workspace_after_failure(workspace_failure_reason)
+        if cleanup is not None and cleanup.get("ok") is not True:
+            denied.append("managed_workspace_failure_cleanup_failed")
     planning_elapsed_sec = max(
         0.0,
         time.monotonic() - request_started_monotonic,
@@ -20189,6 +20351,16 @@ def resource_launch(
                         if attestation_age_at_admission_sec is not None
                         else None
                     ),
+                    "age_before_execute_sec": (
+                        round(attestation_age_before_execute_sec, 3)
+                        if attestation_age_before_execute_sec is not None
+                        else None
+                    ),
+                    "refresh_budget": {
+                        "max_retries_after_initial": RESOURCE_LAUNCH_MAX_ATTESTATION_REFRESH_RETRIES,
+                        "retries_used": launch_attestation_refresh_retries_used,
+                        "exhausted": launch_attestation_refresh_exhausted,
+                    },
                     "rounds": launch_attestation_rounds,
                 },
                 "admission_lock": {
@@ -20213,6 +20385,7 @@ def resource_launch(
                 "demand_observation": observation,
             },
             "storage_reservation": storage_document,
+            "managed_workspace_cleanup": workspace_failure_cleanup,
             "paths": {
                 "latest": str(RESOURCE_RUN_LATEST_PATH),
                 "retention": "latest_only",
@@ -20235,6 +20408,9 @@ def resource_launch(
                 "launch_attestation_max_age_sec": (
                     launch_attestation_max_age_sec
                 ),
+                "launch_attestation_refresh_max_retries": (
+                    RESOURCE_LAUNCH_MAX_ATTESTATION_REFRESH_RETRIES
+                ),
                 "resident_memory_controller_required": False,
                 "runtime_peak_learning": True,
                 "runtime_profile_is_bounded_and_ephemeral": True,
@@ -20254,6 +20430,86 @@ def resource_launch(
     elapsed = 0.0
     if not dry_run and not denied and not blocked and clean_command:
         if execution_delegate is not None:
+            def abort_execution_delegate_handoff(reason: str) -> None:
+                """Close owned admission state without claiming child outcome."""
+                cleanup_errors: list[str] = []
+                cleanup_report: dict[str, Any] = {
+                    "memory_lease": {
+                        "attempted": isinstance(lease, dict),
+                        "released": False,
+                        "error": None,
+                    },
+                    "storage_reservation": {
+                        "attempted": isinstance(storage_reservation, dict),
+                        "released": False,
+                        "error": None,
+                    },
+                }
+                if isinstance(lease, dict):
+                    lease_id = str(lease.get("id") or "")
+                    try:
+                        if not lease_id:
+                            cleanup_errors.append("startup_lease_identity_missing")
+                            cleanup_report["memory_lease"]["error"] = (
+                                "lease_identity_missing"
+                            )
+                        else:
+                            removed = resource_adapters.remove_lease(
+                                reservation_root,
+                                lease_id,
+                            )
+                            released = removed or not resource_adapters.lease_path(
+                                reservation_root,
+                                lease_id,
+                            ).exists()
+                            cleanup_report["memory_lease"]["released"] = released
+                            if not released:
+                                cleanup_errors.append("startup_lease_release_failed")
+                    except (OSError, TypeError, ValueError, RuntimeError):
+                        cleanup_errors.append("startup_lease_release_failed")
+                        cleanup_report["memory_lease"]["error"] = (
+                            "startup_lease_release_error"
+                        )
+                if isinstance(storage_reservation, dict):
+                    reservation_id = str(
+                        storage_reservation.get("reservation_id") or ""
+                    )
+                    try:
+                        released = storage_reservations.release_reservation(
+                            STORAGE_RESERVATIONS_ROOT,
+                            reservation_id,
+                            owner=str(storage_reservation.get("owner") or "") or None,
+                            execution_identity=(
+                                str(storage_reservation.get("execution_identity"))
+                                if storage_reservation.get("execution_identity")
+                                else None
+                            ),
+                        )
+                        cleanup_report["storage_reservation"].update(
+                            {
+                                "released": released.get("ok") is True,
+                                "result": released,
+                            }
+                        )
+                        if released.get("ok") is not True:
+                            cleanup_errors.append("storage_reservation_release_failed")
+                    except (OSError, TypeError, ValueError, RuntimeError):
+                        cleanup_errors.append("storage_reservation_release_failed")
+                        cleanup_report["storage_reservation"]["error"] = (
+                            "storage_reservation_release_error"
+                        )
+                if workspace_lifecycle:
+                    cleanup = preserve_managed_workspace_after_failure(
+                        reason,
+                        execution_started=None,
+                        execution_status="unknown",
+                        stage="delegate_handoff",
+                        cleanup_errors=cleanup_errors,
+                        cleanup_report=cleanup_report,
+                    )
+                    if cleanup is not None and cleanup.get("ok") is not True:
+                        cleanup_errors.append("managed_workspace_failure_cleanup_failed")
+
             handoff = {
                 "schema": f"{SCHEMA_PREFIX}_resource_launch_handoff_v1",
                 "document": build_launch_document(
@@ -20280,6 +20536,15 @@ def resource_launch(
                     "observed_peak_multiplier": float(startup_policy.get("observed_peak_multiplier", 1.25)),
                     "profile_max_entries": int(startup_policy.get("profile_max_entries", 64)),
                     "profile_max_samples": int(startup_policy.get("profile_max_samples", 16)),
+                    "launch_attestation": {
+                        "required": launch_attestations_required,
+                        "deadline_monotonic": (
+                            launch_attestation_collected_at
+                            + launch_attestation_max_age_sec
+                            if launch_attestations_required
+                            else None
+                        ),
+                    },
                     "workspace_lifecycle": workspace_lifecycle,
                     "storage_reservation": storage_reservation,
                     "storage_reservation_root": str(STORAGE_RESERVATIONS_ROOT),
@@ -20292,37 +20557,11 @@ def resource_launch(
             try:
                 execution_delegate(handoff)
             except Exception:
-                if isinstance(lease, dict):
-                    lease_id = str(lease.get("id") or "")
-                    if lease_id:
-                        resource_adapters.remove_lease(reservation_root, lease_id)
-                if isinstance(storage_reservation, dict):
-                    storage_reservations.release_reservation(
-                        STORAGE_RESERVATIONS_ROOT,
-                        str(storage_reservation.get("reservation_id") or ""),
-                        owner=str(storage_reservation.get("owner") or "") or None,
-                        execution_identity=(
-                            str(storage_reservation.get("execution_identity"))
-                            if storage_reservation.get("execution_identity")
-                            else None
-                        ),
-                    )
+                abort_execution_delegate_handoff("execution_delegate_failed")
                 raise
-            if isinstance(lease, dict):
-                lease_id = str(lease.get("id") or "")
-                if lease_id:
-                    resource_adapters.remove_lease(reservation_root, lease_id)
-            if isinstance(storage_reservation, dict):
-                storage_reservations.release_reservation(
-                    STORAGE_RESERVATIONS_ROOT,
-                    str(storage_reservation.get("reservation_id") or ""),
-                    owner=str(storage_reservation.get("owner") or "") or None,
-                    execution_identity=(
-                        str(storage_reservation.get("execution_identity"))
-                        if storage_reservation.get("execution_identity")
-                        else None
-                    ),
-                )
+            abort_execution_delegate_handoff(
+                "execution_delegate_returned_without_handoff"
+            )
             raise RuntimeError("resource launch execution delegate returned unexpectedly")
         outcome = resource_adapters.execute_systemd_launch(
             systemd_command=systemd_cmd,

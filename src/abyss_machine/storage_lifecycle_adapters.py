@@ -11,7 +11,7 @@ from pathlib import Path
 import secrets
 import shutil
 import stat
-from typing import Any, Iterator, Mapping
+from typing import Any, Iterator, Mapping, Sequence
 
 from . import storage_candidate_adapters
 from . import storage_lifecycle_contracts as contracts
@@ -578,6 +578,7 @@ def seal_registered_workspace(
     workspace_id: str,
     lease_token: str,
     max_entries: int = 100_000,
+    preserved_failure: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     path = record_path(root, workspace_id)
     with workspace_lock(root, workspace_id) as acquired:
@@ -599,7 +600,55 @@ def seal_registered_workspace(
             physical_bytes=physical,
             sealed_at=now_iso(),
         )
+        if result.get("ok") is True and isinstance(preserved_failure, Mapping):
+            failure = {
+                "reason": str(preserved_failure.get("reason") or "workspace_preserved_after_launch_failure"),
+                "stage": str(preserved_failure.get("stage") or "pre_execute"),
+                "execution_started": (
+                    preserved_failure.get("execution_started")
+                    if isinstance(preserved_failure.get("execution_started"), bool)
+                    or preserved_failure.get("execution_started") is None
+                    else None
+                ),
+                "execution_status": str(
+                    preserved_failure.get("execution_status")
+                    or (
+                        "not_started"
+                        if preserved_failure.get("execution_started") is False
+                        else "unknown"
+                    )
+                ),
+                "preserved": True,
+            }
+            cleanup_errors = preserved_failure.get("cleanup_errors")
+            if isinstance(cleanup_errors, Sequence) and not isinstance(cleanup_errors, (str, bytes)):
+                failure["cleanup_errors"] = [str(item) for item in cleanup_errors if str(item)]
+            cleanup_report = preserved_failure.get("cleanup_report")
+            if isinstance(cleanup_report, Mapping):
+                failure["cleanup_report"] = dict(cleanup_report)
+            disposition = contracts.disposition_document(
+                {
+                    "decision": "UNKNOWN",
+                    "plan": {
+                        "kind": "preserve_workspace_failure",
+                        "reason": failure["reason"],
+                    },
+                    "owner_evidence_refs": [
+                        str(item)
+                        for item in preserved_failure.get("owner_evidence_refs", [])
+                        if str(item)
+                    ]
+                    if isinstance(preserved_failure.get("owner_evidence_refs"), Sequence)
+                    and not isinstance(preserved_failure.get("owner_evidence_refs"), (str, bytes))
+                    else [],
+                }
+            )
+            disposition["released"] = False
+            disposition["failure"] = failure
+            result["record"]["disposition"] = disposition
         atomic_write_json(path, result["record"])
+        if isinstance(preserved_failure, Mapping):
+            result["preserved_failure"] = result["record"].get("disposition")
         return result
 
 

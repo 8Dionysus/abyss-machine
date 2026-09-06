@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 25239647,
+  "allowed_tracked_bytes": 30457122,
+  "approved_by": "repository-owner",
+  "base_ref": "c18a9c5b9dec031211db10df3ddd8716c064c854",
+  "changed_generated_bytes": 25239647,
+  "changed_generated_files": 339,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "5aec30dbc0f388f69320a469f5a9801594397364dbb829be4124f2d6f0c48f64",
+  "reason": "Generate ABI and portable family for bounded launch-attestation refresh, fail-closed delegated handoff, and preserved UNKNOWN workspace cleanup.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 30457122,
+  "tracked_bytes_max": 27262976
+}

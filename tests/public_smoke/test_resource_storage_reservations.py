@@ -7,6 +7,8 @@ from pathlib import Path
 import subprocess
 import sys
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
@@ -84,7 +86,12 @@ def test_allowed_srv_write_remains_green_when_root_pressure_is_a_finding(monkeyp
     assert result["pressure"]["status"] == "finding"
 
 
-def test_resource_launch_acquires_explicit_storage_reservation_before_execution(monkeypatch, tmp_path: Path) -> None:
+@pytest.mark.parametrize("requested_bytes", [123, 0])
+def test_resource_launch_acquires_explicit_storage_reservation_before_execution(
+    monkeypatch,
+    tmp_path: Path,
+    requested_bytes: int,
+) -> None:
     events: list[str] = []
     lock_state = {"held": False}
     storage_root = tmp_path / "storage-reservations"
@@ -136,7 +143,7 @@ def test_resource_launch_acquires_explicit_storage_reservation_before_execution(
     def acquire(_root: Path, **kwargs: object) -> dict[str, object]:
         events.append("acquire")
         assert lock_state["held"] is True
-        assert kwargs["requested_bytes"] == 123
+        assert kwargs["requested_bytes"] == requested_bytes
         assert kwargs["target"] == target
         assert kwargs["owner"] == "generic"
         assert kwargs["hold_until_terminal"] is True
@@ -148,7 +155,7 @@ def test_resource_launch_acquires_explicit_storage_reservation_before_execution(
                 "reservation_id": str(kwargs["reservation_id"]),
                 "owner": "generic",
                 "execution_identity": str(kwargs["execution_identity"]),
-                "requested_bytes": 123,
+                "requested_bytes": requested_bytes,
                 "target": str(target),
                 "kind": "artifact",
             },
@@ -161,7 +168,7 @@ def test_resource_launch_acquires_explicit_storage_reservation_before_execution(
         assert lock_state["held"] is False
         reservation = kwargs["storage_reservation"]
         assert isinstance(reservation, dict)
-        assert reservation["requested_bytes"] == 123
+        assert reservation["requested_bytes"] == requested_bytes
         return {
             "elapsed_sec": 0.1,
             "execution": {"ok": True, "returncode": 0, "systemd": {}},
@@ -182,7 +189,7 @@ def test_resource_launch_acquires_explicit_storage_reservation_before_execution(
         workload_class="probe",
         kind="generic",
         sample_thermal=False,
-        bytes_required=123,
+        bytes_required=requested_bytes,
         target=str(target),
         write_latest=False,
         execution_delegate=None,
@@ -190,9 +197,99 @@ def test_resource_launch_acquires_explicit_storage_reservation_before_execution(
 
     assert result["ok"] is True
     assert events.index("acquire") < events.index("lock_exit") < events.index("execute")
-    assert result["request"]["bytes_required"] == 123
+    assert result["request"]["bytes_required"] == requested_bytes
     assert result["request"]["target"] == str(target)
     assert result["storage_reservation"]["accounting_complete"] is True
+
+
+def test_resource_launch_without_storage_request_does_not_create_zero_byte_reservation(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    lock_state = {"held": False}
+    acquire_calls: list[dict[str, object]] = []
+    memory_root = tmp_path / "memory-reservations"
+
+    @contextmanager
+    def fake_admission_lock(_root: Path):
+        lock_state["held"] = True
+        try:
+            yield
+        finally:
+            lock_state["held"] = False
+
+    monkeypatch.setattr(cli.resource_adapters, "admission_lock", fake_admission_lock)
+    monkeypatch.setattr(cli.resource_adapters, "reservations_root", lambda *_args, **_kwargs: memory_root)
+    monkeypatch.setattr(cli.resource_adapters, "demand_profiles_path", lambda *_args, **_kwargs: tmp_path / "profiles.json")
+    monkeypatch.setattr(
+        cli.resource_adapters,
+        "reservation_snapshot",
+        lambda *_args, **_kwargs: {"ok": True, "summary": {"active_count": 0, "outstanding_mib": 0}},
+    )
+    monkeypatch.setattr(
+        cli,
+        "resource_policy_document",
+        lambda: {"startup_admission": {"enabled": False}},
+    )
+    monkeypatch.setattr(
+        cli,
+        "resource_plan",
+        lambda **_kwargs: {
+            "blocked_reasons": [],
+            "denied_reasons": [],
+            "inputs": {"startup_demand": {"requested": {"reservation_required": False}}},
+            "request": {"activity": {"normalized": "foreground"}},
+            "systemd": {"unit_type": "service"},
+        },
+    )
+    monkeypatch.setattr(
+        cli,
+        "storage_path_protection",
+        lambda _path: {"decision": "allow_candidate", "class": "host_owned_allowed"},
+    )
+
+    def acquire(_root: Path, **kwargs: object) -> dict[str, object]:
+        acquire_calls.append(dict(kwargs))
+        return {
+            "schema": storage_reservations.SCHEMA,
+            "ok": False,
+            "decision": "blocked",
+            "error": "fixture_unexpected_storage_request",
+        }
+
+    monkeypatch.setattr(cli.storage_reservations, "acquire_reservation", acquire)
+    monkeypatch.setattr(
+        cli,
+        "resource_systemd_command",
+        lambda *_args, **_kwargs: ["systemd-run", "--user", "/bin/true"],
+    )
+    monkeypatch.setattr(
+        cli.resource_adapters,
+        "execute_systemd_launch",
+        lambda **kwargs: {
+            "elapsed_sec": 0.01,
+            "execution": {"ok": True, "returncode": 0},
+            "lease_released": True,
+            "demand_observation": None,
+            "storage_reservation_release": None,
+        },
+    )
+
+    result = cli.resource_launch(
+        command=["/bin/true"],
+        workload_class="probe",
+        kind="generic",
+        sample_thermal=False,
+        write_latest=False,
+    )
+
+    assert lock_state["held"] is False
+    assert result["ok"] is True
+    assert acquire_calls == []
+    assert result["request"]["storage_reservation_requested"] is False
+    assert result["storage_reservation"]["requested"] is False
+    assert result["storage_reservation"]["reservation"] is None
+    assert result["storage_reservation"]["acquire"] is None
 
 
 def test_resource_runner_handoff_carries_reservation_and_release_receipt(monkeypatch, tmp_path: Path) -> None:
@@ -227,6 +324,10 @@ def test_resource_runner_handoff_carries_reservation_and_release_receipt(monkeyp
         },
         "execution": {
             "systemd_command": ["true"],
+            "launch_attestation": {
+                "required": False,
+                "deadline_monotonic": None,
+            },
             "unit_type": "service",
             "timeout_sec": 1,
             "reservation_root": str(tmp_path / "memory-reservations"),

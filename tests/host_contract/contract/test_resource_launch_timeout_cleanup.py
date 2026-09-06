@@ -1061,6 +1061,355 @@ def test_resource_launch_refreshes_attestation_that_ages_during_atomic_plan(
     ] <= 1.0
 
 
+@pytest.mark.parametrize(
+    ("configured_ttl", "expected_refresh_count"),
+    [(5.0, 1), (1.0, 2)],
+)
+def test_resource_launch_thermal_attestation_ttl_is_independent_of_live_input_coalescing(
+    abyss_machine_module,
+    monkeypatch,
+    tmp_path,
+    configured_ttl,
+    expected_refresh_count,
+):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
+    policy = abyss_machine_module.resource_planning.default_policy(
+        version="test"
+    )
+    policy["startup_admission"]["launch_attestation_max_age_sec"] = configured_ttl
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "resource_policy_document",
+        lambda: policy,
+    )
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "resource_live_input_coalesce_seconds",
+        lambda: 1.0,
+    )
+    # The no-storage request is intentional.  Keep the pre-fix accidental
+    # Path("None") branch fail-closed during this thermal-only regression so
+    # the test remains about the independent attestation TTL.
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "storage_path_protection",
+        lambda _path: {"decision": "deny", "class": "unknown"},
+    )
+
+    generated_at = "2026-08-12T09:00:00-06:00"
+    mode_data = {
+        "ok": True,
+        "schema": "fixture_mode_plan_v1",
+        "generated_at": generated_at,
+        "effective_mode": "balanced",
+    }
+    game_guard_data = {
+        "ok": True,
+        "schema": "fixture_game_guard_v1",
+        "generated_at": generated_at,
+        "active": False,
+    }
+    thermal_map_data = {
+        "ok": True,
+        "schema": "fixture_thermal_map_v1",
+        "generated_at": generated_at,
+        "class": "green",
+    }
+    thermal_plan_data = {
+        "ok": True,
+        "schema": "fixture_thermal_plan_v1",
+        "generated_at": generated_at,
+        "thermal": {"class": "green"},
+        "cpu_route": {
+            "ok": True,
+            "schema": "fixture_cpu_route_v1",
+            "requested": {
+                "normalized_class": "medium",
+                "latency": "balanced",
+            },
+            "allowed": True,
+            "unattended_allowed": True,
+            "route": {"cpuset": "0-1", "env": {}},
+        },
+    }
+    collector_calls = {
+        "mode": 0,
+        "game_guard": 0,
+        "thermal_map": 0,
+        "thermal_admission": 0,
+    }
+
+    def collect(name, document):
+        def _collect(**_kwargs):
+            collector_calls[name] += 1
+            return document
+
+        return _collect
+
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "mode_plan",
+        collect("mode", mode_data),
+    )
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "process_game_guard",
+        collect("game_guard", game_guard_data),
+    )
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "ai_cpu_thermal_map",
+        collect("thermal_map", thermal_map_data),
+    )
+
+    def collect_thermal_admission(**_kwargs):
+        collector_calls["thermal_admission"] += 1
+        return thermal_plan_data
+
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "resource_thermal_admission_attestation",
+        collect_thermal_admission,
+    )
+
+    plan_calls = 0
+
+    def fake_plan(**kwargs):
+        nonlocal plan_calls
+        assert kwargs["force_fresh_live_inputs"] is True
+        assert kwargs["thermal_plan_data"] is thermal_plan_data
+        plan_calls += 1
+        if plan_calls == 1:
+            # Longer than the one-second cache coalescing horizon, but shorter
+            # than the five-second receipt TTL in the first parameter case.
+            time.sleep(1.05)
+        return {
+            "ok": True,
+            "decision": "allow",
+            "blocked_reasons": [],
+            "denied_reasons": [],
+            "request": {
+                "normalized_class": "medium",
+                "normalized_kind": "benchmark",
+                "activity": {"normalized": "foreground"},
+            },
+            "inputs": {
+                "startup_demand": {
+                    "requested": {
+                        "demand_mib": 512.0,
+                        "reservation_required": False,
+                    }
+                }
+            },
+            "systemd": {
+                "unit_type": "service",
+                "slice": "abyss-machine-benchmarks.slice",
+                "properties": {},
+                "env": {},
+            },
+        }
+
+    monkeypatch.setattr(abyss_machine_module, "resource_plan", fake_plan)
+    monkeypatch.setattr(
+        abyss_machine_module.resource_adapters,
+        "execute_systemd_launch",
+        lambda **_kwargs: {
+            "elapsed_sec": 0.01,
+            "execution": {"ok": True, "returncode": 0},
+            "lease_released": True,
+            "demand_observation": None,
+        },
+    )
+
+    result = abyss_machine_module.resource_launch(
+        ["/usr/bin/true"],
+        workload_class="medium",
+        kind="benchmark",
+        activity="foreground",
+        sample_thermal=True,
+        memory_demand_mib=512,
+        demand_owner="fixture-owner",
+        startup_wait_sec=0,
+        write_latest=False,
+    )
+
+    assert result["ok"] is True
+    assert plan_calls == expected_refresh_count
+    assert result["planning"]["pre_admission_dag"]["refresh_count"] == expected_refresh_count
+    assert result["planning"]["pre_admission_dag"]["configured_max_age_sec"] == configured_ttl
+    assert result["planning"]["pre_admission_dag"]["max_age_sec"] == configured_ttl
+    assert collector_calls["mode"] == expected_refresh_count
+    assert collector_calls["game_guard"] == expected_refresh_count
+    assert collector_calls["thermal_map"] == expected_refresh_count
+    assert collector_calls["thermal_admission"] == expected_refresh_count
+    if configured_ttl == 5.0:
+        assert result["planning"]["pre_admission_dag"]["age_at_admission_sec"] > 1.0
+        assert result["planning"]["pre_admission_dag"]["age_at_admission_sec"] <= configured_ttl
+    else:
+        assert result["planning"]["pre_admission_dag"]["age_at_admission_sec"] <= configured_ttl
+
+
+def test_resource_launch_denies_when_attestation_expires_before_execute(
+    abyss_machine_module,
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
+    policy = abyss_machine_module.resource_planning.default_policy(
+        version="test"
+    )
+    policy["startup_admission"]["launch_attestation_max_age_sec"] = 1.0
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "resource_policy_document",
+        lambda: policy,
+    )
+    target = tmp_path / "target"
+    collector_calls = 0
+    acquire_calls: list[dict[str, object]] = []
+    release_calls: list[str] = []
+    execute_calls = 0
+
+    def collect_storage(**_kwargs):
+        nonlocal collector_calls
+        collector_calls += 1
+        return {
+            "ok": True,
+            "schema": "fixture_storage_preflight_v1",
+            "generated_at": "2026-08-12T09:00:00-06:00",
+            "decision": "allow",
+        }
+
+    def fake_plan(**kwargs):
+        assert kwargs["force_fresh_live_inputs"] is True
+        assert kwargs["write_preflight_data"]["schema"] == (
+            "fixture_storage_preflight_v1"
+        )
+        return {
+            "ok": True,
+            "decision": "allow",
+            "blocked_reasons": [],
+            "denied_reasons": [],
+            "request": {
+                "normalized_class": "medium",
+                "normalized_kind": "benchmark",
+                "activity": {"normalized": "foreground"},
+            },
+            "inputs": {
+                "startup_demand": {
+                    "requested": {
+                        "demand_mib": 512.0,
+                        "reservation_required": True,
+                        "calibrated": True,
+                    }
+                }
+            },
+            "systemd": {
+                "unit_type": "service",
+                "slice": "abyss-machine-benchmarks.slice",
+                "properties": {},
+                "env": {},
+            },
+        }
+
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "storage_write_preflight",
+        collect_storage,
+    )
+    monkeypatch.setattr(abyss_machine_module, "resource_plan", fake_plan)
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "storage_path_protection",
+        lambda _path: {"decision": "allow_candidate", "class": "host_owned_allowed"},
+    )
+
+    def acquire(_root, **kwargs):
+        acquire_calls.append(dict(kwargs))
+        return {
+            "schema": abyss_machine_module.storage_reservations.SCHEMA,
+            "ok": True,
+            "decision": "reserved",
+            "reservation": {
+                "reservation_id": str(kwargs["reservation_id"]),
+                "owner": "fixture-owner",
+                "execution_identity": str(kwargs["execution_identity"]),
+                "requested_bytes": 1024,
+                "target": str(target),
+                "kind": "artifact",
+            },
+        }
+
+    def release(_root, reservation_id, **_kwargs):
+        release_calls.append(str(reservation_id))
+        return {"ok": True, "decision": "released", "reservation_id": str(reservation_id)}
+
+    monkeypatch.setattr(
+        abyss_machine_module.storage_reservations,
+        "acquire_reservation",
+        acquire,
+    )
+    monkeypatch.setattr(
+        abyss_machine_module.storage_reservations,
+        "release_reservation",
+        release,
+    )
+
+    def slow_systemd_command(*_args, **_kwargs):
+        # Simulate bounded post-admission command preparation crossing the
+        # configured receipt TTL.  No systemd unit should be submitted.
+        time.sleep(1.05)
+        return ["systemd-run", "--user", "/usr/bin/true"]
+
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "resource_systemd_command",
+        slow_systemd_command,
+    )
+
+    def execute(**_kwargs):
+        nonlocal execute_calls
+        execute_calls += 1
+        return {
+            "elapsed_sec": 0.01,
+            "execution": {"ok": True, "returncode": 0},
+            "lease_released": True,
+            "demand_observation": None,
+        }
+
+    monkeypatch.setattr(
+        abyss_machine_module.resource_adapters,
+        "execute_systemd_launch",
+        execute,
+    )
+
+    result = abyss_machine_module.resource_launch(
+        ["/usr/bin/true"],
+        workload_class="medium",
+        kind="benchmark",
+        activity="foreground",
+        bytes_required=1024,
+        target=str(target),
+        sample_thermal=False,
+        memory_demand_mib=512,
+        demand_owner="fixture-owner",
+        startup_wait_sec=0,
+        write_latest=False,
+    )
+
+    assert collector_calls == 1
+    assert len(acquire_calls) == 1
+    assert len(release_calls) == 1
+    assert execute_calls == 0
+    assert result["ok"] is False
+    assert "launch_attestation_expired_before_execute" in result["denied_reasons"]
+    assert result["execution"] is None
+    assert result["startup_admission"]["lease"] is None
+    assert result["startup_admission"]["lease_released"] is True
+    assert list(Path(result["startup_admission"]["reservation_root"]).glob("*.json")) == []
+    assert result["planning"]["pre_admission_dag"]["age_before_execute_sec"] > 1.0
+
+
 def test_resource_plan_reuses_bounded_inputs_but_refreshes_memory_and_game_guard(
     monkeypatch,
     tmp_path,
@@ -1691,6 +2040,10 @@ def test_lightweight_resource_runner_finishes_receipt_and_bounded_writes(
         "execution": {
             "systemd_command": ["systemd-run", "--user", "/usr/bin/true"],
             "request_started_monotonic": 90.0,
+            "launch_attestation": {
+                "required": False,
+                "deadline_monotonic": None,
+            },
             "launch_unit": "fixture.service",
             "generated_unit": None,
             "unit_type": "service",
@@ -1725,6 +2078,9 @@ def test_lightweight_resource_runner_finishes_receipt_and_bounded_writes(
 
 def test_resource_launch_releases_lease_when_exec_handoff_fails(abyss_machine_module, monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
+    lifecycle_root = tmp_path / "lifecycle"
+    workspace = tmp_path / "managed-workspace"
+    monkeypatch.setattr(abyss_machine_module, "STORAGE_LIFECYCLE_ROOT", lifecycle_root)
     policy = abyss_machine_module.resource_planning.default_policy(version="test")
     monkeypatch.setattr(abyss_machine_module, "resource_policy_document", lambda: policy)
 
@@ -1772,10 +2128,21 @@ def test_resource_launch_releases_lease_when_exec_handoff_fails(abyss_machine_mo
             startup_wait_sec=0,
             write_latest=False,
             execution_delegate=fail_handoff,
+            workspace_path=str(workspace),
+            workspace_owner="fixture-owner",
         )
 
     reservation_root = tmp_path / "run" / "abyss-machine" / "resource" / "reservations"
     assert list(reservation_root.glob("*.json")) == []
+    records = list((lifecycle_root / "workspaces").glob("*.json"))
+    assert len(records) == 1
+    record = json.loads(records[0].read_text(encoding="utf-8"))
+    assert record["state"] == "sealed"
+    assert record["lease"] is None
+    assert record["disposition"]["decision"] == "UNKNOWN"
+    assert record["disposition"]["failure"]["execution_started"] is None
+    assert record["disposition"]["failure"]["execution_status"] == "unknown"
+    assert record["disposition"]["failure"]["cleanup_report"]["memory_lease"]["released"] is True
 
 
 def test_lightweight_resource_runner_releases_lease_on_failure(monkeypatch, tmp_path):
@@ -1796,3 +2163,508 @@ def test_lightweight_resource_runner_releases_lease_on_failure(monkeypatch, tmp_
 
     assert resource_runner.main() == 1
     assert not resource_runner.resource_adapters.lease_path(root, "fixture-lease").exists()
+
+
+def test_resource_launch_stale_attestation_seals_managed_workspace_before_execute(
+    abyss_machine_module,
+    monkeypatch,
+    tmp_path,
+):
+    """A post-registration freshness denial must close the owner lifecycle record."""
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
+    policy = abyss_machine_module.resource_planning.default_policy(version="test")
+    policy["startup_admission"]["launch_attestation_max_age_sec"] = 1.0
+    monkeypatch.setattr(abyss_machine_module, "resource_policy_document", lambda: policy)
+
+    lifecycle_root = tmp_path / "lifecycle"
+    target = tmp_path / "target"
+    workspace = tmp_path / "managed-workspace"
+    monkeypatch.setattr(abyss_machine_module, "STORAGE_LIFECYCLE_ROOT", lifecycle_root)
+
+    class Clock:
+        expired = False
+
+        def monotonic(self):
+            return 2.0 if self.expired else 0.0
+
+        def __getattr__(self, name):
+            return getattr(time, name)
+
+    clock = Clock()
+    monkeypatch.setattr(abyss_machine_module, "time", clock)
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "storage_write_preflight",
+        lambda **_kwargs: {
+            "ok": True,
+            "schema": "fixture_storage_preflight_v1",
+            "decision": "allow",
+        },
+    )
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "storage_path_protection",
+        lambda _path: {"decision": "allow_candidate", "class": "host_owned_allowed"},
+    )
+
+    def fake_plan(**_kwargs):
+        return {
+            "ok": True,
+            "decision": "allow",
+            "blocked_reasons": [],
+            "denied_reasons": [],
+            "request": {"normalized_class": "medium", "normalized_kind": "benchmark"},
+            "inputs": {
+                "startup_demand": {
+                    "requested": {
+                        "demand_mib": 512.0,
+                        "reservation_required": True,
+                        "calibrated": True,
+                    }
+                }
+            },
+            "systemd": {
+                "unit_type": "service",
+                "slice": "abyss-machine-benchmarks.slice",
+                "properties": {},
+                "env": {},
+            },
+        }
+
+    monkeypatch.setattr(abyss_machine_module, "resource_plan", fake_plan)
+
+    def acquire(_root, **kwargs):
+        return {
+            "schema": abyss_machine_module.storage_reservations.SCHEMA,
+            "ok": True,
+            "decision": "reserved",
+            "reservation": {
+                "reservation_id": str(kwargs["reservation_id"]),
+                "owner": "fixture-owner",
+                "execution_identity": str(kwargs["execution_identity"]),
+                "requested_bytes": 1024,
+                "target": str(target),
+                "kind": "artifact",
+            },
+        }
+
+    monkeypatch.setattr(abyss_machine_module.storage_reservations, "acquire_reservation", acquire)
+    monkeypatch.setattr(
+        abyss_machine_module.storage_reservations,
+        "release_reservation",
+        lambda _root, reservation_id, **_kwargs: {
+            "ok": True,
+            "decision": "released",
+            "reservation_id": str(reservation_id),
+        },
+    )
+
+    def command_after_expiry(*_args, **_kwargs):
+        clock.expired = True
+        return ["systemd-run", "--user", "/usr/bin/true"]
+
+    monkeypatch.setattr(abyss_machine_module, "resource_systemd_command", command_after_expiry)
+    monkeypatch.setattr(
+        abyss_machine_module.resource_adapters,
+        "execute_systemd_launch",
+        lambda **_kwargs: pytest.fail("stale managed workspace must not execute"),
+    )
+
+    result = abyss_machine_module.resource_launch(
+        ["/usr/bin/true"],
+        workload_class="medium",
+        kind="benchmark",
+        bytes_required=1024,
+        target=str(target),
+        sample_thermal=False,
+        memory_demand_mib=512,
+        demand_owner="fixture-owner",
+        startup_wait_sec=0,
+        workspace_path=str(workspace),
+        workspace_owner="fixture-owner",
+        write_latest=False,
+    )
+
+    assert result["ok"] is False
+    assert "launch_attestation_expired_before_execute" in result["denied_reasons"]
+    records = list((lifecycle_root / "workspaces").glob("*.json"))
+    assert len(records) == 1
+    record = json.loads(records[0].read_text(encoding="utf-8"))
+    assert record["state"] == "sealed"
+    assert record["lease"] is None
+    assert record["disposition"]["decision"] == "UNKNOWN"
+    assert record["disposition"]["released"] is False
+
+
+def test_lightweight_resource_runner_rejects_expired_handoff_before_execute(
+    monkeypatch,
+    tmp_path,
+):
+    """The delegated child must enforce the same expiry and lifecycle closeout."""
+    from abyss_machine import resource_runner
+    from abyss_machine import storage_lifecycle_adapters
+
+    lifecycle_root = tmp_path / "lifecycle"
+    workspace = tmp_path / "managed-workspace"
+    registered = storage_lifecycle_adapters.register_workspace(
+        lifecycle_root,
+        owner="fixture-owner",
+        workspace=workspace,
+        unit="fixture.service",
+        lease_seconds=300,
+    )
+    assert registered["ok"] is True
+    record = registered["record"]
+    lifecycle = {
+        "workspace_id": record["workspace_id"],
+        "path": record["path"],
+        "owner": record["owner"],
+        "launcher_created": record["launcher_created"],
+        "callback_path": record["callback_path"],
+        "lease_token": registered["lease_token"],
+        "grace_seconds": 0,
+        "root": str(lifecycle_root),
+    }
+
+    reservation_root = tmp_path / "reservations"
+    lease = {"id": "fixture-lease"}
+    resource_runner.resource_adapters.atomic_write_lease(reservation_root, lease)
+    storage_root = tmp_path / "storage-reservations"
+    target = tmp_path / "target"
+    storage = resource_runner.resource_adapters.storage_reservations.acquire_reservation(
+        storage_root,
+        reservation_id="fixture-storage",
+        kind="artifact",
+        requested_bytes=0,
+        target=target,
+        owner="fixture-owner",
+        ttl_seconds=60,
+        hold_until_terminal=True,
+        execution_identity="fixture-execution",
+        disk_usage=lambda *_args, **_kwargs: {
+            "available_to_user_bytes": 1_000_000,
+            "free_bytes": 1_000_000,
+        },
+    )
+    assert storage["ok"] is True
+
+    monkeypatch.setattr(resource_runner, "monotonic", lambda: 101.0)
+    monkeypatch.setattr(
+        resource_runner.resource_adapters,
+        "execute_systemd_launch",
+        lambda **_kwargs: pytest.fail("expired delegated handoff must not execute"),
+    )
+
+    handoff = {
+        "document": {
+            "ok": True,
+            "blocked_reasons": [],
+            "denied_reasons": [],
+            "planning": {"elapsed_sec": 1.0},
+            "startup_admission": {"lease_released": False},
+        },
+        "execution": {
+            "systemd_command": ["systemd-run", "--user", "/usr/bin/true"],
+            "request_started_monotonic": 90.0,
+            "launch_attestation": {
+                "required": True,
+                "deadline_monotonic": 100.0,
+            },
+            "launch_unit": "fixture.service",
+            "generated_unit": None,
+            "unit_type": "service",
+            "timeout_sec": 5,
+            "lease": lease,
+            "reservation_root": str(reservation_root),
+            "demand_profile_path": str(tmp_path / "profiles.json"),
+            "demand_key": "fixture",
+            "demand_owner": "fixture-owner",
+            "kind": "generic",
+            "observed_peak_multiplier": 1.25,
+            "profile_max_entries": 64,
+            "profile_max_samples": 16,
+            "workspace_lifecycle": lifecycle,
+            "storage_reservation": storage["reservation"],
+            "storage_reservation_root": str(storage_root),
+        },
+        "write_latest": False,
+    }
+
+    result = resource_runner.finish_document(handoff)
+
+    assert result["ok"] is False
+    assert "launch_attestation_expired_before_execute" in result["denied_reasons"]
+    assert not resource_runner.resource_adapters.lease_path(
+        reservation_root,
+        "fixture-lease",
+    ).exists()
+    listed = resource_runner.resource_adapters.storage_reservations.list_reservations(storage_root)
+    assert listed["records"][0]["active"] is False
+    lifecycle_record = json.loads(
+        next((lifecycle_root / "workspaces").glob("*.json")).read_text(encoding="utf-8")
+    )
+    assert lifecycle_record["state"] == "sealed"
+    assert lifecycle_record["lease"] is None
+    assert lifecycle_record["disposition"]["decision"] == "UNKNOWN"
+
+
+@pytest.mark.parametrize(
+    ("launch_attestation", "expected_reason"),
+    [
+        (None, "launch_attestation_handoff_missing"),
+        ({"required": "yes", "deadline_monotonic": 100.0}, "launch_attestation_handoff_malformed"),
+        ({"required": True, "deadline_monotonic": None}, "launch_attestation_handoff_malformed"),
+        ({"required": False, "deadline_monotonic": 100.0}, "launch_attestation_handoff_malformed"),
+    ],
+)
+def test_lightweight_resource_runner_rejects_missing_or_malformed_attestation(
+    monkeypatch,
+    tmp_path,
+    launch_attestation,
+    expected_reason,
+):
+    from abyss_machine import resource_runner
+
+    monkeypatch.setattr(resource_runner, "monotonic", lambda: 101.0)
+    monkeypatch.setattr(
+        resource_runner.resource_adapters,
+        "execute_systemd_launch",
+        lambda **_kwargs: pytest.fail("invalid delegated handoff must not execute"),
+    )
+    result = resource_runner.finish_document(
+        {
+            "document": {
+                "ok": True,
+                "blocked_reasons": [],
+                "denied_reasons": [],
+            },
+            "execution": {
+                "systemd_command": ["systemd-run", "--user", "/usr/bin/true"],
+                "request_started_monotonic": 90.0,
+                "launch_attestation": launch_attestation,
+                "launch_unit": "fixture.service",
+                "generated_unit": None,
+                "unit_type": "service",
+                "timeout_sec": 5,
+                "lease": None,
+                "reservation_root": str(tmp_path / "reservations"),
+                "demand_profile_path": str(tmp_path / "profiles.json"),
+                "demand_key": "fixture",
+                "demand_owner": "fixture-owner",
+                "kind": "generic",
+                "observed_peak_multiplier": 1.25,
+                "profile_max_entries": 64,
+                "profile_max_samples": 16,
+                "storage_reservation": None,
+                "storage_reservation_root": str(tmp_path / "storage-reservations"),
+            },
+            "write_latest": False,
+        }
+    )
+
+    assert result["ok"] is False
+    assert expected_reason in result["denied_reasons"]
+    assert result["execution"] is None
+
+
+def test_lightweight_resource_runner_seals_workspace_when_abort_cleanup_steps_fail(
+    monkeypatch,
+    tmp_path,
+):
+    """A stale delegated handoff must attempt each owned cleanup independently."""
+    from abyss_machine import resource_runner
+    from abyss_machine import storage_lifecycle_adapters
+
+    lifecycle_root = tmp_path / "lifecycle"
+    workspace = tmp_path / "managed-workspace"
+    registered = storage_lifecycle_adapters.register_workspace(
+        lifecycle_root,
+        owner="fixture-owner",
+        workspace=workspace,
+        unit="fixture.service",
+        lease_seconds=300,
+    )
+    assert registered["ok"] is True
+    record = registered["record"]
+    lifecycle = {
+        "workspace_id": record["workspace_id"],
+        "path": record["path"],
+        "owner": record["owner"],
+        "launcher_created": record["launcher_created"],
+        "callback_path": record["callback_path"],
+        "lease_token": registered["lease_token"],
+        "grace_seconds": 0,
+        "root": str(lifecycle_root),
+    }
+    monkeypatch.setattr(resource_runner, "monotonic", lambda: 101.0)
+    monkeypatch.setattr(
+        resource_runner.resource_adapters,
+        "execute_systemd_launch",
+        lambda **_kwargs: pytest.fail("stale delegated handoff must not execute"),
+    )
+    monkeypatch.setattr(
+        resource_runner.resource_adapters,
+        "remove_lease",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("lease busy")),
+    )
+    monkeypatch.setattr(
+        resource_runner.resource_adapters,
+        "_release_storage_reservation",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("reservation busy")),
+    )
+
+    result = resource_runner.finish_document(
+        {
+            "document": {
+                "ok": True,
+                "blocked_reasons": [],
+                "denied_reasons": [],
+                "planning": {"elapsed_sec": 1.0},
+                "startup_admission": {"lease_released": False},
+            },
+            "execution": {
+                "systemd_command": ["systemd-run", "--user", "/usr/bin/true"],
+                "request_started_monotonic": 90.0,
+                "launch_attestation": {
+                    "required": True,
+                    "deadline_monotonic": 100.0,
+                },
+                "launch_unit": "fixture.service",
+                "generated_unit": None,
+                "unit_type": "service",
+                "timeout_sec": 5,
+                "lease": {"id": "fixture-lease"},
+                "reservation_root": str(tmp_path / "reservations"),
+                "demand_profile_path": str(tmp_path / "profiles.json"),
+                "demand_key": "fixture",
+                "demand_owner": "fixture-owner",
+                "kind": "generic",
+                "observed_peak_multiplier": 1.25,
+                "profile_max_entries": 64,
+                "profile_max_samples": 16,
+                "workspace_lifecycle": lifecycle,
+                "storage_reservation": {
+                    "reservation_id": "fixture-storage",
+                    "owner": "fixture-owner",
+                    "execution_identity": "fixture-execution",
+                },
+                "storage_reservation_root": str(tmp_path / "storage"),
+            },
+            "write_latest": False,
+        }
+    )
+
+    assert result["ok"] is False
+    assert "startup_lease_release_failed" in result["denied_reasons"]
+    assert "storage_reservation_release_failed" in result["denied_reasons"]
+    assert result["managed_workspace_cleanup"]["ok"] is True
+    cleanup = result["planning"]["pre_admission_dag"]["handoff_validation"]["cleanup"]
+    assert cleanup["memory_lease"]["error"] == "lease busy"
+    assert cleanup["storage_reservation"]["error"] == "storage_reservation_release_error"
+    lifecycle_record = json.loads(
+        next((lifecycle_root / "workspaces").glob("*.json")).read_text(encoding="utf-8")
+    )
+    assert lifecycle_record["state"] == "sealed"
+    assert lifecycle_record["lease"] is None
+    assert lifecycle_record["disposition"]["decision"] == "UNKNOWN"
+
+
+def test_resource_launch_bounds_repeated_expired_attestation_refreshes(
+    abyss_machine_module,
+    monkeypatch,
+    tmp_path,
+):
+    """Repeatedly stale plans must end in a typed denial, not an unbounded loop."""
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
+    policy = abyss_machine_module.resource_planning.default_policy(version="test")
+    policy["startup_admission"]["launch_attestation_max_age_sec"] = 1.0
+    monkeypatch.setattr(abyss_machine_module, "resource_policy_document", lambda: policy)
+    target = tmp_path / "target"
+
+    class AdvancingClock:
+        now = 0.0
+        expire = False
+
+        def monotonic(self):
+            if self.expire:
+                self.now += 2.0
+            return self.now
+
+        def __getattr__(self, name):
+            return getattr(time, name)
+
+    clock = AdvancingClock()
+    monkeypatch.setattr(abyss_machine_module, "time", clock)
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "storage_write_preflight",
+        lambda **_kwargs: {
+            "ok": True,
+            "schema": "fixture_storage_preflight_v1",
+            "decision": "allow",
+        },
+    )
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "storage_path_protection",
+        lambda _path: {"decision": "allow_candidate", "class": "host_owned_allowed"},
+    )
+    plan_calls = 0
+
+    def fake_plan(**_kwargs):
+        nonlocal plan_calls
+        plan_calls += 1
+        clock.expire = True
+        return {
+            "ok": True,
+            "decision": "allow",
+            "blocked_reasons": [],
+            "denied_reasons": [],
+            "request": {"normalized_class": "medium", "normalized_kind": "benchmark"},
+            "inputs": {
+                "startup_demand": {
+                    "requested": {
+                        "demand_mib": 0.0,
+                        "reservation_required": False,
+                    }
+                }
+            },
+            "systemd": {
+                "unit_type": "service",
+                "slice": "abyss-machine-benchmarks.slice",
+                "properties": {},
+                "env": {},
+            },
+        }
+
+    monkeypatch.setattr(abyss_machine_module, "resource_plan", fake_plan)
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "resource_systemd_command",
+        lambda *_args, **_kwargs: pytest.fail(
+            "freshness budget must deny before command preparation"
+        ),
+    )
+    result = abyss_machine_module.resource_launch(
+        ["/usr/bin/true"],
+        workload_class="medium",
+        kind="benchmark",
+        bytes_required=1024,
+        target=str(target),
+        sample_thermal=False,
+        memory_demand_mib=0,
+        demand_owner="fixture-owner",
+        startup_wait_sec=0,
+        write_latest=False,
+    )
+
+    assert result["ok"] is False
+    assert "launch_attestation_refresh_exhausted" in result["denied_reasons"]
+    assert 1 <= plan_calls <= 4
+    assert result["planning"]["pre_admission_dag"]["refresh_count"] == 4
+    assert result["planning"]["pre_admission_dag"]["refresh_budget"] == {
+        "max_retries_after_initial": 3,
+        "retries_used": 3,
+        "exhausted": True,
+    }
+    assert result["execution"] is None
