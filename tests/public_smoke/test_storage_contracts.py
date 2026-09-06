@@ -281,3 +281,23 @@ def test_storage_monitor_timer_reserves_measured_startup_memory() -> None:
     assert exec_start.endswith("/abyss-machine storage monitor --json")
     assert "MemoryHigh=" not in unit
     assert "MemoryMax=" not in unit
+
+
+def test_storage_capacity_timer_is_independent_and_capacity_only() -> None:
+    service = (ROOT / "systemd" / "user" / "abyss-storage-capacity.service").read_text(encoding="utf-8")
+    timer = (ROOT / "systemd" / "user" / "abyss-storage-capacity.timer").read_text(encoding="utf-8")
+
+    start_lines = [line for line in service.splitlines() if line.startswith("ExecStart=")]
+    assert start_lines == [
+        "ExecStart={{ABYSS_LOCAL_BIN_DIR}}/abyss-machine storage capacity --json"
+    ]
+    assert "ExecStartPre=" not in service
+    assert "TimeoutStartSec=30s" in service
+    forbidden = ("resource launch", "monitor", "inventory", "candidate", "deep", "cleanup", "lifecycle", "reap")
+    service_lower = service.lower()
+    assert all(token not in service_lower for token in forbidden)
+
+    assert "OnBootSec=2min" in timer
+    assert "OnUnitInactiveSec=5min" in timer
+    assert "Persistent=true" in timer
+    assert "WantedBy=timers.target" in timer

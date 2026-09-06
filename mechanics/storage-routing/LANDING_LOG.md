@@ -8,3 +8,8 @@
   created objects: lease, exact seal, owner release, bounded revalidation,
   atomic detach/archive, and byte receipts. Existing candidates remain outside
   this automatic executor.
+- 2026-09-06: Prepared a capacity-only five-minute user service/timer that
+  records the existing cheap capacity feed through the installed generation-
+  guarded entrypoint. The source units intentionally do not run monitor,
+  inventory, deep refresh, cleanup, or lifecycle work; activation remains
+  pending owner review.

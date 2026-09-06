@@ -9,4 +9,7 @@
 - `src/abyss_machine/storage_lifecycle_contracts.py`
 - `src/abyss_machine/storage_lifecycle_adapters.py`
 - `systemd/user/abyss-storage-lifecycle-reaper.timer`
+- `systemd/user/abyss-storage-capacity.service`
+- `systemd/user/abyss-storage-capacity.timer`
 - `docs/managed-workspace-lifecycle.md`
+- `docs/capacity-control.md`
