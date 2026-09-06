@@ -263,6 +263,48 @@ def pressure_class(used_percent: Any, warning: float, critical: float, watch_mar
     return "green"
 
 
+def pressure_class_from_usage(
+    usage: dict[str, Any],
+    warning: float,
+    critical: float,
+    watch_margin: float,
+) -> dict[str, Any]:
+    """Classify storage pressure from physical usage and user headroom.
+
+    ``used_percent`` remains the physical filesystem fact.  When statvfs
+    exposes ``available_to_user_bytes``, the user headroom is an independent
+    pressure input so reserved blocks cannot hide an admission boundary.
+    ``reserved_bytes`` is intentionally not part of either classification.
+    """
+    physical_class = pressure_class(usage.get("used_percent"), warning, critical, watch_margin)
+    total = usage.get("statvfs_total_bytes", usage.get("total_bytes"))
+    available = usage.get("available_to_user_bytes")
+    available_percent: float | None = None
+    user_used_percent: float | None = None
+    user_class = "unknown"
+    if isinstance(total, int) and total > 0 and isinstance(available, int):
+        bounded_available = min(float(total), max(0.0, float(available)))
+        available_percent = round((bounded_available / float(total)) * 100.0, 2)
+        user_used_percent = round(100.0 - available_percent, 2)
+        user_class = pressure_class(user_used_percent, warning, critical, watch_margin)
+
+    rank = {"unknown": -1, "green": 0, "watch": 1, "warning": 2, "critical": 3}
+    selected = physical_class if rank[physical_class] >= rank[user_class] else user_class
+    return {
+        "pressure_class": selected,
+        "physical_used_pressure_class": physical_class,
+        "user_available_pressure_class": user_class,
+        "pressure_basis": (
+            "physical_used_percent_and_user_available_headroom_percent"
+            if user_class != "unknown"
+            else "physical_used_percent"
+        ),
+        "physical_used_percent": usage.get("used_percent"),
+        "available_to_user_percent": available_percent,
+        "user_used_percent": user_used_percent,
+    }
+
+
 def threshold_bytes(usage: dict[str, Any], threshold_percent: float) -> dict[str, Any]:
     total = usage.get("total_bytes")
     used = usage.get("used_bytes")

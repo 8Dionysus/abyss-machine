@@ -8857,6 +8857,15 @@ def storage_pressure_class(used_percent: Any, warning: float, critical: float, w
     return storage_contracts.pressure_class(used_percent, warning, critical, watch_margin)
 
 
+def storage_pressure_class_from_usage(
+    usage: dict[str, Any],
+    warning: float,
+    critical: float,
+    watch_margin: float,
+) -> dict[str, Any]:
+    return storage_contracts.pressure_class_from_usage(usage, warning, critical, watch_margin)
+
+
 def storage_threshold_bytes(usage: dict[str, Any], threshold_percent: float) -> dict[str, Any]:
     return storage_contracts.threshold_bytes(usage, threshold_percent)
 
@@ -8896,18 +8905,20 @@ def storage_pressure(refresh_inventory: bool = False, write_latest: bool = True)
     root_usage = status.get("roots", {}).get("system", {}) if isinstance(status.get("roots"), dict) else {}
     srv_usage = status.get("roots", {}).get("srv", {}) if isinstance(status.get("roots"), dict) else {}
     watch_margin = thresholds["watch_margin_percent"]
-    root_class = storage_pressure_class(
-        root_usage.get("used_percent"),
+    root_pressure = storage_pressure_class_from_usage(
+        root_usage,
         thresholds["system_warning_percent"],
         thresholds["system_critical_percent"],
         watch_margin,
     )
-    srv_class = storage_pressure_class(
-        srv_usage.get("used_percent"),
+    srv_pressure = storage_pressure_class_from_usage(
+        srv_usage,
         thresholds["srv_warning_percent"],
         thresholds["srv_critical_percent"],
         watch_margin,
     )
+    root_class = root_pressure["pressure_class"]
+    srv_class = srv_pressure["pressure_class"]
     items = [item for item in inventory.get("items", []) if isinstance(item, dict)]
     candidates = [item for item in items if storage_item_is_pressure_candidate(item)]
     by_scope: dict[str, dict[str, Any]] = {}
@@ -8953,18 +8964,20 @@ def storage_pressure(refresh_inventory: bool = False, write_latest: bool = True)
         "roots": {
             "system": {
                 **root_usage,
-                "pressure_class": root_class,
+                **root_pressure,
                 "thresholds": root_thresholds,
             },
             "srv": {
                 **srv_usage,
-                "pressure_class": srv_class,
+                **srv_pressure,
                 "thresholds": srv_thresholds,
             },
         },
         "summary": {
             "root_pressure_class": root_class,
             "srv_pressure_class": srv_class,
+            "root_pressure_basis": root_pressure["pressure_basis"],
+            "srv_pressure_basis": srv_pressure["pressure_basis"],
             "pressure_candidates": len(candidates),
             "pressure_candidate_bytes": sum(storage_item_size_bytes(item) for item in candidates),
             "root_pressure_candidate_bytes": by_scope.get("root", {}).get("size_bytes", 0),

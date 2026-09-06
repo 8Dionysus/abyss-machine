@@ -78,6 +78,38 @@ def test_disk_capacity_exposes_user_available_and_reserved_blocks(tmp_path: Path
     assert summary["capacity_basis"] == "statvfs"
 
 
+def test_storage_pressure_uses_user_headroom_without_reserved_block_drift(tmp_path: Path) -> None:
+    class Stat:
+        f_frsize = 10
+        f_blocks = 100
+        f_bavail = 4
+
+        def __init__(self, free_blocks: int) -> None:
+            self.f_bfree = free_blocks
+
+    def summary(reserved_blocks: int) -> dict[str, Any]:
+        return storage_adapters.disk_usage_summary(
+            tmp_path / "missing",
+            disk_usage=lambda path: (1000, 910, 40),
+            statvfs=lambda path: Stat(4 + reserved_blocks),
+        )
+
+    low_reserved = summary(6)
+    high_reserved = summary(26)
+    assert low_reserved["used_percent"] == high_reserved["used_percent"] == 91.0
+    assert low_reserved["available_to_user_bytes"] == high_reserved["available_to_user_bytes"] == 40
+    assert low_reserved["reserved_bytes"] != high_reserved["reserved_bytes"]
+
+    low_assessment = storage_contracts.pressure_class_from_usage(low_reserved, 85.0, 92.0, 5.0)
+    high_assessment = storage_contracts.pressure_class_from_usage(high_reserved, 85.0, 92.0, 5.0)
+    assert low_assessment == high_assessment
+    assert low_assessment["pressure_class"] == "critical"
+    assert low_assessment["physical_used_pressure_class"] == "warning"
+    assert low_assessment["user_available_pressure_class"] == "critical"
+    assert low_assessment["pressure_basis"] == "physical_used_percent_and_user_available_headroom_percent"
+    assert low_assessment["available_to_user_percent"] == 4.0
+
+
 def test_inventory_reports_physical_primary_and_apparent_companion(tmp_path: Path) -> None:
     target = tmp_path / "cache"
     target.mkdir()
