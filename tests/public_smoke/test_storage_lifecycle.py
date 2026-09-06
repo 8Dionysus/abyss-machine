@@ -5,6 +5,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import stat
 
 import pytest
 
@@ -893,6 +894,9 @@ def test_bounded_vault_file_copy_uses_anchor_fd_hash_and_preserves_source(tmp_pa
     assert result["ok"] is True
     assert result["hash_verified"] is True
     assert result["restore_proof"]["source_was_not_removed"] is True
+    assert result["restore_proof"]["file_metadata_fsynced"] is True
+    assert result["restore_proof"]["directory_entries_fsynced"] is True
+    assert result["restore_proof"]["ancestor_directories_fsynced"] is True
     assert result["destination_anchor"]["st_dev"] == binding["st_dev"]
     assert len(binding_checks) == 4
     assert destination.read_bytes() == b"bounded archive payload\n"
@@ -913,6 +917,84 @@ def test_bounded_vault_file_copy_uses_anchor_fd_hash_and_preserves_source(tmp_pa
     )
     assert second["ok"] is False
     assert second["reasons"] == ["archive_target_exists"]
+
+
+@pytest.mark.parametrize("failure_kind", ["file", "directory"])
+def test_bounded_vault_file_copy_fails_closed_on_fsync_failure(
+    monkeypatch, tmp_path: Path, failure_kind: str
+) -> None:
+    vault = tmp_path / "vault"
+    source = tmp_path / "source" / "result.json"
+    vault.mkdir()
+    source.parent.mkdir()
+    source.write_bytes(b"durability failure fixture\n")
+    destination = vault / "nested" / "result.json"
+    mount_stat = vault.stat()
+    binding = {
+        "required_mount": str(vault),
+        "mount_id": "42",
+        "device": "0:99",
+        "fs_root": "/",
+        "filesystem": "btrfs",
+        "source": "/dev/mapper/fixture",
+        "st_dev": int(mount_stat.st_dev),
+        "st_ino": int(mount_stat.st_ino),
+        "uuid": "runtime-fixture-uuid",
+        "mapper": "/dev/mapper/fixture",
+        "label": "FIXTURE",
+    }
+    pair = {
+        "ok": True,
+        "source": str(source),
+        "destination": str(destination),
+        "relative_suffix": "result.json",
+        "route_id": "fixture-vault-route",
+        "owner": "fixture-owner",
+    }
+    reservation = {
+        "active": True,
+        "kind": "vault-archive",
+        "owner": "fixture-owner",
+        "target": str(destination),
+        "reservation_id": "fixture-copy-fsync-failure",
+        "requested_bytes": source.stat().st_size,
+        "route_metadata": {
+            "route_id": "fixture-vault-route",
+            "owner": "fixture-owner",
+            "required_mount": str(vault),
+            "archive_binding": binding,
+        },
+    }
+    fsync_kinds: list[str] = []
+    real_fsync = adapters.os.fsync
+
+    def failing_fsync(fd: int) -> None:
+        kind = "directory" if stat.S_ISDIR(os.fstat(fd).st_mode) else "file"
+        fsync_kinds.append(kind)
+        if kind == failure_kind:
+            raise OSError("fixture fsync failure")
+        real_fsync(fd)
+
+    monkeypatch.setattr(adapters.os, "fsync", failing_fsync)
+    result = adapters.copy_vault_archive_file(
+        source,
+        destination,
+        owner="fixture-owner",
+        pair=pair,
+        reservation_record=reservation,
+        expected_binding=binding,
+        required_mount=vault,
+        expected_mapper="fixture",
+        expected_label="FIXTURE",
+        mount_binding_reader=lambda _target, _mount, **_kwargs: {"ok": True, "identity": binding},
+    )
+
+    assert fsync_kinds.count(failure_kind) >= 1
+    assert result["ok"] is False
+    assert result["decision"] != "copied"
+    assert source.read_bytes() == b"durability failure fixture\n"
+    assert not destination.exists()
+    assert not list(vault.rglob(".*.partial"))
 
 
 def test_reaper_does_not_hold_registry_lock_during_disposition(monkeypatch, tmp_path: Path) -> None:

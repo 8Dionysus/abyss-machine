@@ -1160,16 +1160,28 @@ def _open_archive_destination_directory(
     if isinstance(expected_inode, bool) or (expected_inode is not None and not isinstance(expected_inode, int)):
         return {"ok": False, "reasons": ["archive_binding_inode_invalid"]}
     flags = getattr(os, "O_PATH", os.O_RDONLY) | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0)
+    sync_flags = os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0)
     opened: list[int] = []
+    sync_opened: list[int] = []
     try:
         anchor_fd = os.open(required_mount, flags)
         opened.append(anchor_fd)
+        anchor_sync_fd = os.open(required_mount, sync_flags)
+        sync_opened.append(anchor_sync_fd)
         anchor_stat = os.fstat(anchor_fd)
-        if not stat.S_ISDIR(anchor_stat.st_mode) or int(anchor_stat.st_dev) != int(expected_device):
+        anchor_sync_stat = os.fstat(anchor_sync_fd)
+        if (
+            not stat.S_ISDIR(anchor_stat.st_mode)
+            or not stat.S_ISDIR(anchor_sync_stat.st_mode)
+            or int(anchor_stat.st_dev) != int(expected_device)
+            or int(anchor_sync_stat.st_dev) != int(anchor_stat.st_dev)
+            or int(anchor_sync_stat.st_ino) != int(anchor_stat.st_ino)
+        ):
             raise OSError("archive mount fd device mismatch")
         if expected_inode is not None and int(anchor_stat.st_ino) != int(expected_inode):
             raise OSError("archive mount fd inode mismatch")
         current_fd = anchor_fd
+        current_sync_fd = anchor_sync_fd
         for component in parent_components:
             try:
                 child_fd = os.open(component, flags, dir_fd=current_fd)
@@ -1177,15 +1189,26 @@ def _open_archive_destination_directory(
                 os.mkdir(component, 0o750, dir_fd=current_fd)
                 child_fd = os.open(component, flags, dir_fd=current_fd)
             opened.append(child_fd)
+            child_sync_fd = os.open(component, sync_flags, dir_fd=current_sync_fd)
+            sync_opened.append(child_sync_fd)
             child_stat = os.fstat(child_fd)
-            if not stat.S_ISDIR(child_stat.st_mode) or int(child_stat.st_dev) != int(expected_device):
+            child_sync_stat = os.fstat(child_sync_fd)
+            if (
+                not stat.S_ISDIR(child_stat.st_mode)
+                or not stat.S_ISDIR(child_sync_stat.st_mode)
+                or int(child_stat.st_dev) != int(expected_device)
+                or int(child_sync_stat.st_dev) != int(child_stat.st_dev)
+                or int(child_sync_stat.st_ino) != int(child_stat.st_ino)
+            ):
                 raise OSError("archive destination directory device mismatch")
             current_fd = child_fd
+            current_sync_fd = child_sync_fd
         return {
             "ok": True,
             "anchor_fd": anchor_fd,
             "directory_fd": current_fd,
             "opened_fds": opened,
+            "sync_fds": sync_opened,
             "filename": filename,
             "anchor_identity": {
                 "st_dev": int(anchor_stat.st_dev),
@@ -1193,12 +1216,31 @@ def _open_archive_destination_directory(
             },
         }
     except OSError as exc:
+        for fd in reversed(sync_opened):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
         for fd in reversed(opened):
             try:
                 os.close(fd)
             except OSError:
                 pass
         return {"ok": False, "reasons": ["archive_destination_anchor_unavailable"], "error": str(exc)}
+
+
+def _fsync_archive_directories(sync_fds: Sequence[int], *, stage: str) -> dict[str, Any] | None:
+    """Flush archive directory entries from the deepest parent to the mount."""
+    for fd in reversed(tuple(sync_fds)):
+        try:
+            os.fsync(int(fd))
+        except OSError as exc:
+            return {
+                "stage": stage,
+                "reasons": ["archive_directory_durability_failed"],
+                "error": str(exc),
+            }
+    return None
 
 
 def copy_vault_archive_file(
@@ -1318,6 +1360,7 @@ def copy_vault_archive_file(
     if anchor.get("ok") is not True:
         return {"ok": False, "decision": "deny", **anchor}
     opened_fds = [int(fd) for fd in anchor.get("opened_fds", [])]
+    sync_fds = [int(fd) for fd in anchor.get("sync_fds", [])]
     destination_dir_fd = int(anchor["directory_fd"])
     destination_name = str(anchor["filename"])
     reservation_id = str(reservation_record.get("reservation_id"))
@@ -1326,17 +1369,19 @@ def copy_vault_archive_file(
     partial_created = False
     committed = False
 
-    def cleanup_partial() -> None:
+    def cleanup_partial() -> bool:
         nonlocal partial_created
         if not partial_created:
-            return
+            return True
         try:
             os.unlink(partial_name, dir_fd=destination_dir_fd)
         except FileNotFoundError:
-            pass
+            partial_created = False
+            return True
         except OSError:
-            return
+            return False
         partial_created = False
+        return True
 
     try:
         # The open fd is the write anchor. A detached mount cannot redirect
@@ -1344,6 +1389,9 @@ def copy_vault_archive_file(
         before_anchor_binding, binding_error = check_binding("before_copy_after_anchor")
         if binding_error is not None:
             return {"ok": False, "decision": "deny", **binding_error}
+        durability_error = _fsync_archive_directories(sync_fds, stage="destination_prepare")
+        if durability_error is not None:
+            return {"ok": False, "decision": "blocked", **durability_error}
         try:
             os.stat(destination_name, dir_fd=destination_dir_fd, follow_symlinks=False)
         except FileNotFoundError:
@@ -1384,7 +1432,6 @@ def copy_vault_archive_file(
                         partial_handle.write(chunk)
                         digest.update(chunk)
                     partial_handle.flush()
-                    os.fsync(partial_handle.fileno())
                     os.fchmod(partial_handle.fileno(), stat.S_IMODE(source_identity[3]))
                 if _archive_file_stat_identity(os.fstat(source_handle.fileno())) != source_identity:
                     return {"ok": False, "decision": "deny", "reasons": ["archive_source_changed_during_copy"]}
@@ -1403,8 +1450,16 @@ def copy_vault_archive_file(
             return {"ok": False, "decision": "deny", **binding_error}
         verify_fd = os.open(partial_name, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0), dir_fd=destination_dir_fd)
         try:
+            os.fsync(verify_fd)
             partial_check = _sha256_regular_fd(verify_fd, max_bytes=copy_limit)
             partial_identity = os.fstat(verify_fd)
+        except OSError as exc:
+            return {
+                "ok": False,
+                "decision": "blocked",
+                "reasons": ["archive_file_durability_failed"],
+                "error": str(exc),
+            }
         finally:
             os.close(verify_fd)
         if (
@@ -1416,6 +1471,9 @@ def copy_vault_archive_file(
             return {"ok": False, "decision": "deny", "reasons": ["archive_copy_hash_mismatch"]}
         os.link(partial_name, destination_name, src_dir_fd=destination_dir_fd, dst_dir_fd=destination_dir_fd, follow_symlinks=False)
         committed = True
+        durability_error = _fsync_archive_directories(sync_fds, stage="after_commit")
+        if durability_error is not None:
+            return {"ok": False, "decision": "blocked", "committed": True, **durability_error}
         destination_identity = os.stat(destination_name, dir_fd=destination_dir_fd, follow_symlinks=False)
         if (
             not stat.S_ISREG(destination_identity.st_mode)
@@ -1424,7 +1482,16 @@ def copy_vault_archive_file(
             or int(destination_identity.st_ino) != int(partial_identity.st_ino)
         ):
             return {"ok": False, "decision": "blocked", "reasons": ["archive_destination_identity_mismatch"], "committed": True}
-        cleanup_partial()
+        if not cleanup_partial():
+            return {
+                "ok": False,
+                "decision": "blocked",
+                "committed": True,
+                "reasons": ["archive_partial_cleanup_failed"],
+            }
+        durability_error = _fsync_archive_directories(sync_fds, stage="after_partial_cleanup")
+        if durability_error is not None:
+            return {"ok": False, "decision": "blocked", "committed": True, **durability_error}
 
         final_binding, binding_error = check_binding("after_commit")
         if binding_error is not None:
@@ -1453,6 +1520,9 @@ def copy_vault_archive_file(
                 "destination_inode_verified": True,
                 "destination_hash_matches_source": True,
                 "source_was_not_removed": True,
+                "file_metadata_fsynced": True,
+                "directory_entries_fsynced": True,
+                "ancestor_directories_fsynced": True,
             },
             "archive_binding_before": before_binding.get("identity") if before_binding else None,
             "archive_binding_before_anchor": before_anchor_binding.get("identity") if before_anchor_binding else None,
@@ -1470,6 +1540,11 @@ def copy_vault_archive_file(
         return {"ok": False, "decision": "blocked", "reasons": ["archive_commit_failed"], "error": str(exc), "committed": committed}
     finally:
         cleanup_partial()
+        for fd in reversed(sync_fds):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
         for fd in reversed(opened_fds):
             try:
                 os.close(fd)
