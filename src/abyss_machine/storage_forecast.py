@@ -19,7 +19,14 @@ FREE_FLOOR_BYTES = 5 * 1024**3
 
 
 def forecast(samples: list[dict[str, Any]], current: dict[str, Any]) -> dict[str, Any]:
-    """Extrapolate net user-available capacity on one unchanged filesystem."""
+    """Extrapolate capacity on one unchanged filesystem.
+
+    ``net_bytes_per_day`` remains the historical available-endpoint metric.
+    When every retained sample includes ``reserved_bytes``, the depletion
+    decision and headroom use physical free space (available plus reserved)
+    while holding the current reserve policy fixed. Missing historical reserve
+    values stay on the legacy basis; they are never treated as zero.
+    """
     result = {
         "path": current["path"],
         "filesystem_key": current.get("filesystem_key"),
@@ -27,6 +34,11 @@ def forecast(samples: list[dict[str, Any]], current: dict[str, Any]) -> dict[str
         "free_floor_bytes": FREE_FLOOR_BYTES,
         "status": "insufficient_history",
         "net_bytes_per_day": None,
+        "net_physical_free_consumed_bytes": None,
+        "net_physical_free_consumption_bytes_per_day": None,
+        "reserve_shift_bytes": None,
+        "physical_free_bytes": None,
+        "forecast_basis": "legacy_available_to_user",
         "hours_to_free_floor": None,
         "hours_to_full": None,
         "method": "constant_net_rate_extrapolation_not_deadline",
@@ -53,14 +65,36 @@ def forecast(samples: list[dict[str, Any]], current: dict[str, Any]) -> dict[str
     # Include cleanup in the net rate rather than calling reclaimed bytes growth.
     rate = (rows[0]["available_to_user_bytes"] - current["available_to_user_bytes"]) / span
     result["net_bytes_per_day"] = round(rate * 86400)
-    if rate <= 0:
+
+    reserve_values = [row.get("reserved_bytes") for row in rows]
+    has_reserve_history = all(
+        isinstance(value, int) and not isinstance(value, bool)
+        for value in reserve_values
+    )
+    physical_rate = rate
+    if has_reserve_history:
+        first_physical_free = rows[0]["available_to_user_bytes"] + reserve_values[0]
+        current_physical_free = current["available_to_user_bytes"] + reserve_values[-1]
+        physical_rate = (first_physical_free - current_physical_free) / span
+        result.update(
+            forecast_basis="physical_free_fixed_reserve",
+            method="constant_physical_free_consumption_fixed_reserve_extrapolation_not_deadline",
+            net_physical_free_consumed_bytes=first_physical_free - current_physical_free,
+            net_physical_free_consumption_bytes_per_day=round(physical_rate * 86400),
+            reserve_shift_bytes=reserve_values[-1] - reserve_values[0],
+            physical_free_bytes=current_physical_free,
+        )
+    else:
+        result["forecast_basis"] = "legacy_available_to_user_missing_reserved_bytes"
+
+    if physical_rate <= 0:
         result["status"] = "not_depleting_in_observed_window"
         return result
     available = current["available_to_user_bytes"]
     result.update(
         status="depleting",
-        hours_to_free_floor=round(max(0, available - FREE_FLOOR_BYTES) / rate / 3600, 2),
-        hours_to_full=round(available / rate / 3600, 2),
+        hours_to_free_floor=round(max(0, available - FREE_FLOOR_BYTES) / physical_rate / 3600, 2),
+        hours_to_full=round(available / physical_rate / 3600, 2),
     )
     return result
 

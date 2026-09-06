@@ -70,11 +70,15 @@ approval, and external receipts but does not add automatic deletion.
 The storage monitor keeps at most 168 capacity samples per mount in compact
 state. `storage capacity` records the same observation before the monitor's
 resource admission, allowing the next sample when monitor admission is
-deferred by memory pressure. It uses bytes available to the user, including
-reserved-block effects, and requires four observations spanning at least three
-hours on the same filesystem. A missing mount or insufficient history produces
-an unknown forecast. The net-rate estimate includes cleanup and reports time to
-the five-GiB free-space floor and exhaustion; it is an extrapolation, not a
-write reservation or a deletion decision.
+deferred by memory pressure. It keeps the historical available-endpoint net
+rate for compatibility, and when all retained samples carry `reserved_bytes`,
+derives physical free-space consumption from available plus reserved bytes.
+Reserve-policy shifts are reported explicitly; depletion headroom holds the
+current reserve fixed while using that physical rate. Older samples without
+reserve values stay on an explicit legacy basis rather than inventing zeros.
+The forecast requires four observations spanning at least three hours on the
+same filesystem. A missing mount or insufficient history produces an unknown
+forecast. Cleanup remains part of the observed rate; the result is an
+extrapolation, not a write reservation or a deletion decision.
 
 Use `host-facts` for machine posture and `local-ai-runtime` for AI caches.
