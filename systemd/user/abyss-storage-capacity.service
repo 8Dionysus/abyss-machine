@@ -11,5 +11,5 @@ CPUWeight=10
 IOWeight=10
 TimeoutStartSec=30s
 ExecStart={{ABYSS_LOCAL_BIN_DIR}}/abyss-machine storage capacity --json
-StandardOutput=null
+StandardOutput=truncate:{{ABYSS_MACHINE_STATE}}/storage/capacity-latest.json
 StandardError=journal
