@@ -305,9 +305,7 @@ def pressure_class_from_usage(
     }
 
 
-def threshold_bytes(usage: dict[str, Any], threshold_percent: float) -> dict[str, Any]:
-    total = usage.get("total_bytes")
-    used = usage.get("used_bytes")
+def _threshold_bytes_for_values(total: Any, used: Any, threshold_percent: float) -> dict[str, Any]:
     if not isinstance(total, int) or not isinstance(used, int):
         return {"bytes_to_threshold": None, "bytes_over_threshold": None}
     threshold_value = int(float(total) * (threshold_percent / 100.0))
@@ -315,6 +313,43 @@ def threshold_bytes(usage: dict[str, Any], threshold_percent: float) -> dict[str
         "threshold_bytes": threshold_value,
         "bytes_to_threshold": max(0, threshold_value - used),
         "bytes_over_threshold": max(0, used - threshold_value),
+    }
+
+
+def threshold_bytes(usage: dict[str, Any], threshold_percent: float) -> dict[str, Any]:
+    """Return threshold distances using the admission-relevant capacity basis.
+
+    Physical ``total_bytes``/``used_bytes`` remain the companion fact.  When
+    ``statvfs`` exposes user-available capacity, the primary distance follows
+    that same basis as pressure admission: reserved blocks cannot make a
+    critical user headroom finding look green.  This keeps the existing flat
+    threshold shape for callers while making the selected basis explicit.
+    """
+    physical = _threshold_bytes_for_values(
+        usage.get("total_bytes"),
+        usage.get("used_bytes"),
+        threshold_percent,
+    )
+    total = usage.get("statvfs_total_bytes", usage.get("total_bytes"))
+    available = usage.get("available_to_user_bytes")
+    if isinstance(total, int) and total > 0 and isinstance(available, int):
+        bounded_available = min(total, max(0, available))
+        user_used = total - bounded_available
+        primary = _threshold_bytes_for_values(total, user_used, threshold_percent)
+        return {
+            **primary,
+            "basis": "user_available_headroom_bytes",
+            "total_bytes": total,
+            "used_bytes": user_used,
+            "available_to_user_bytes": bounded_available,
+            "physical": {
+                **physical,
+                "basis": "physical_used_bytes",
+            },
+        }
+    return {
+        **physical,
+        "basis": "physical_used_bytes",
     }
 
 

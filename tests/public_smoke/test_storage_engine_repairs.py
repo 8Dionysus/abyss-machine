@@ -109,6 +109,14 @@ def test_storage_pressure_uses_user_headroom_without_reserved_block_drift(tmp_pa
     assert low_assessment["pressure_basis"] == "physical_used_percent_and_user_available_headroom_percent"
     assert low_assessment["available_to_user_percent"] == 4.0
 
+    critical_threshold = storage_contracts.threshold_bytes(high_reserved, 92.0)
+    assert critical_threshold["basis"] == "user_available_headroom_bytes"
+    assert critical_threshold["bytes_to_threshold"] == 0
+    assert critical_threshold["bytes_over_threshold"] == 40
+    assert critical_threshold["physical"]["basis"] == "physical_used_bytes"
+    assert critical_threshold["physical"]["bytes_to_threshold"] == 10
+    assert critical_threshold["physical"]["bytes_over_threshold"] == 0
+
 
 def test_inventory_reports_physical_primary_and_apparent_companion(tmp_path: Path) -> None:
     target = tmp_path / "cache"
