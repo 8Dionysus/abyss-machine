@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 6334805,
+  "allowed_tracked_bytes": 30372774,
+  "approved_by": "repository-owner",
+  "base_ref": "247b0edbf358875c8db2ea909d1f2001663e8df7",
+  "changed_generated_bytes": 6334805,
+  "changed_generated_files": 65,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "a381dc95ba7a8c445f419c51dac199bbe79638a6d537f945a8d177c6de3d4d75",
+  "reason": "Control launch-overhead elapsed-time test clock while retaining real Popen, cleanup, and elapsed semantics.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 30372774,
+  "tracked_bytes_max": 27262976
+}
