@@ -130,6 +130,44 @@ def test_storage_protection_and_cleanup_actions_are_operator_gated(tmp_path: Pat
     assert "work_path_protected" in action["blocked_reasons"]
 
 
+def test_user_project_capacity_is_identity_bound_and_has_no_write_authority(tmp_path: Path) -> None:
+    target = tmp_path / "project" / "generated"
+    target.mkdir(parents=True)
+
+    capacity = storage_contracts.user_project_capacity_match(target)
+
+    assert capacity["decision"] == "allow_candidate"
+    assert capacity["class"] == "user_project_capacity"
+    assert capacity["capacity_only"] is True
+    assert capacity["write_permission"] is False
+    assert capacity["cleanup_authority"] is False
+    assert capacity["target_identity"]["type"] == "directory"
+    assert capacity["target_identity"]["st_uid"] == os.geteuid()
+
+    replaced = target.with_name("generated-old")
+    target.rename(replaced)
+    target.mkdir()
+    changed = storage_contracts.user_project_capacity_match(target)
+    assert changed["decision"] == "allow_candidate"
+    assert changed["target_identity"]["st_ino"] != capacity["target_identity"]["st_ino"]
+
+
+def test_user_project_capacity_rejects_symlink_target_and_ancestor(tmp_path: Path) -> None:
+    target = tmp_path / "project" / "generated"
+    target.mkdir(parents=True)
+    target_link = tmp_path / "project-link"
+    target_link.symlink_to(target, target_is_directory=True)
+    assert storage_contracts.user_project_capacity_match(target_link)["reason"] == "capacity_target_symlink"
+
+    real_parent = tmp_path / "real-parent"
+    real_parent.mkdir()
+    parent_link = tmp_path / "parent-link"
+    parent_link.symlink_to(real_parent, target_is_directory=True)
+    nested = parent_link / "generated"
+    (real_parent / "generated").mkdir()
+    assert storage_contracts.user_project_capacity_match(nested)["reason"] == "capacity_target_symlink_ancestor"
+
+
 def test_storage_write_preflight_decision_keeps_large_writes_on_host_owned_routes(tmp_path: Path) -> None:
     decision = storage_contracts.write_preflight_decision(
         kind="model-cache",
@@ -235,104 +273,6 @@ def test_vault_archive_preflight_requires_explicit_route_class() -> None:
     )
     assert denied["decision"] == "deny"
     assert denied["reasons"] == ["archive_route_required"]
-
-
-def test_owner_write_route_requires_exact_target_owner_operation_and_claim(tmp_path: Path) -> None:
-    target = tmp_path / "project" / ".aoa"
-    target.mkdir(parents=True)
-    route = {
-        "id": "aoa-session-memory-project",
-        "owner": "aoa-session-memory",
-        "kind": "artifact",
-        "target": str(target),
-        "operations": ["install", "compact"],
-        "claims": ["goal-lease-123"],
-    }
-
-    validated = storage_contracts.validate_owner_write_routes([route])
-    assert validated["ok"] is True
-    assert validated["routes"] == [{
-        "id": route["id"],
-        "owner": route["owner"],
-        "kind": route["kind"],
-        "target": route["target"],
-        "operations": ["compact", "install"],
-        "claims": ["goal-lease-123"],
-    }]
-
-    allowed = storage_contracts.owner_write_route_match(
-        target,
-        [route],
-        kind="artifact",
-        owner="aoa-session-memory",
-        operation="install",
-        route_id=route["id"],
-        claim="goal-lease-123",
-    )
-    assert allowed["decision"] == "allow_candidate"
-    assert allowed["class"] == "owner_route_allowed"
-    assert allowed["write_permission"] is False
-    assert allowed["cleanup_authority"] is False
-
-    for kwargs, reason in (
-        ({"owner": "other-owner"}, "owner_write_route_owner_mismatch"),
-        ({"operation": "delete"}, "owner_write_route_operation_mismatch"),
-        ({"claim": "other-claim"}, "owner_write_route_claim_mismatch"),
-        ({"route_id": "other-route"}, "owner_write_route_not_configured"),
-    ):
-        request = {
-            "kind": "artifact",
-            "owner": "aoa-session-memory",
-            "operation": "install",
-            "route_id": route["id"],
-            "claim": "goal-lease-123",
-        }
-        request.update(kwargs)
-        denied = storage_contracts.owner_write_route_match(target, [route], **request)
-        assert denied["decision"] == "deny"
-        assert denied["reason"] == reason
-
-    sibling = storage_contracts.owner_write_route_match(
-        target.with_name(".aoa-sibling"),
-        [route],
-        kind="artifact",
-        owner="aoa-session-memory",
-        operation="install",
-        route_id=route["id"],
-        claim="goal-lease-123",
-    )
-    assert sibling["reason"] == "owner_write_route_target_mismatch"
-
-    symlink = tmp_path / "project-link-aoa"
-    symlink.symlink_to(target)
-    symlink_target = storage_contracts.owner_write_route_match(
-        symlink,
-        [dict(route, target=str(symlink))],
-        kind="artifact",
-        owner="aoa-session-memory",
-        operation="install",
-        route_id=route["id"],
-        claim="goal-lease-123",
-    )
-    assert symlink_target["reason"] == "owner_write_route_symlink_target"
-
-    real_parent = tmp_path / "real-parent"
-    real_parent.mkdir()
-    parent_symlink = tmp_path / "parent-link"
-    parent_symlink.symlink_to(real_parent, target_is_directory=True)
-    parent_target = parent_symlink / ".aoa"
-    (real_parent / ".aoa").mkdir()
-    parent_route = dict(route, target=str(parent_target))
-    parent_denied = storage_contracts.owner_write_route_match(
-        parent_target,
-        [parent_route],
-        kind="artifact",
-        owner="aoa-session-memory",
-        operation="install",
-        route_id=route["id"],
-        claim="goal-lease-123",
-    )
-    assert parent_denied["reason"] == "owner_write_route_symlink_ancestor"
 
 
 def test_storage_paths_cli_surface_is_json_read_only() -> None:

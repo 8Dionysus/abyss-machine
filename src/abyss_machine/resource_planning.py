@@ -1158,6 +1158,18 @@ def storage_gate(storage_data: dict[str, Any], write_preflight: dict[str, Any] |
             if isinstance(explicit_allowed, bool)
             else bool(write_preflight.get("ok")) and decision == "allow"
         )
+        capacity_only = write_preflight.get("capacity_admission")
+        capacity_only_allowed = (
+            isinstance(capacity_only, dict)
+            and capacity_only.get("ok") is True
+            and capacity_only.get("capacity_only") is True
+            and capacity_only.get("write_permission") is False
+            and capacity_only.get("cleanup_authority") is False
+            and not write_preflight.get("runtime_errors")
+        )
+        if capacity_only_allowed:
+            allowed = True
+            warnings.append("storage_capacity_admitted_without_host_write_authority")
         if not allowed:
             reason = f"storage_write_preflight_{decision or 'blocked'}"
             if decision == "deny":
@@ -1410,9 +1422,6 @@ def build_plan(
     generated_at: str,
     startup_demand: dict[str, Any] | None = None,
     activity: str | None = None,
-    owner_route: str | None = None,
-    owner_operation: str | None = None,
-    owner_claim: str | None = None,
 ) -> dict[str, Any]:
     normalized_class = normalize_class(workload_class)
     normalized_kind = normalize_kind(kind)
@@ -1521,9 +1530,6 @@ def build_plan(
             "unit_type": unit_type,
             "bytes_required": bytes_required,
             "target": target,
-            "owner_route": owner_route,
-            "owner_operation": owner_operation,
-            "owner_claim": owner_claim,
             "sample_thermal": bool(sample_thermal),
             "activity": activity_data,
             "memory_demand_mib": _nested_get(demand_data, ["requested", "demand_mib"]),

@@ -82,7 +82,6 @@
       "reason": "Work path. Machine-owned data must not be routed here."
     }
   ],
-  "owner_write_routes": [],
   "stable_paths": {
     "bridge": "{{ABYSS_MACHINE_ETC}}/bridge.json",
     "agent_entrypoint": "{{ABYSS_MACHINE_ETC}}/AGENTS.md",

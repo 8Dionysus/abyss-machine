@@ -30,7 +30,6 @@ import shlex
 import shutil
 import socket
 import sqlite3
-import stat
 import subprocess
 import sys
 import tempfile
@@ -9503,73 +9502,9 @@ def _archive_vault_policy_value(vault: Mapping[str, Any], route: Mapping[str, An
     return value or None
 
 
-def storage_write_path_protection(
-    kind: str,
-    path: Path,
-    *,
-    owner: str | None = None,
-    owner_route: str | None = None,
-    owner_operation: str | None = None,
-    owner_claim: str | None = None,
-) -> dict[str, Any]:
+def storage_write_path_protection(kind: str, path: Path, *, owner: str | None = None) -> dict[str, Any]:
     """Classify a write target without widening generic path protection."""
     if kind != storage_contracts.VAULT_ARCHIVE_KIND:
-        if any((owner_route, owner_operation, owner_claim)):
-            policy = storage_policy_document()
-            policy_path = str(policy.get("path") or "")
-            if not policy_path:
-                return {
-                    "class": "unknown",
-                    "decision": "deny",
-                    "owner": owner,
-                    "matched_root": None,
-                    "reason": "owner_write_route_policy_unreadable",
-                }
-            policy_fd: int | None = None
-            try:
-                policy_fd = os.open(
-                    policy_path,
-                    os.O_RDONLY
-                    | int(getattr(os, "O_CLOEXEC", 0))
-                    | int(getattr(os, "O_NOFOLLOW", 0)),
-                )
-                policy_stat = os.fstat(policy_fd)
-                if not stat.S_ISREG(policy_stat.st_mode):
-                    raise OSError("owner write route policy is not a regular file")
-                with os.fdopen(policy_fd, "rb") as policy_handle:
-                    policy_fd = None
-                    policy_bytes = policy_handle.read()
-                policy_sha256 = hashlib.sha256(policy_bytes).hexdigest()
-                snapshot = json.loads(policy_bytes.decode("utf-8"))
-                if not isinstance(snapshot, dict):
-                    raise ValueError("owner write route policy is not an object")
-            except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
-                return {
-                    "class": "unknown",
-                    "decision": "deny",
-                    "owner": owner,
-                    "matched_root": None,
-                    "reason": "owner_write_route_policy_unreadable",
-                }
-            finally:
-                if policy_fd is not None:
-                    try:
-                        os.close(policy_fd)
-                    except OSError:
-                        pass
-            route_match = storage_contracts.owner_write_route_match(
-                path,
-                snapshot.get("owner_write_routes", []),
-                kind=kind,
-                owner=owner,
-                operation=owner_operation,
-                route_id=owner_route,
-                claim=owner_claim,
-            )
-            if route_match.get("decision") == "allow_candidate":
-                route_match["policy_path"] = policy_path
-                route_match["policy_sha256"] = policy_sha256
-            return route_match
         return storage_path_protection(path)
     archive_policy = storage_archive_policy()
     if archive_policy.get("ok") is not True:
@@ -9623,6 +9558,78 @@ def storage_write_path_protection(
         "archive_binding": binding.get("identity"),
         "required_mount": required_mount,
         "device": binding.get("device"),
+    }
+
+
+def storage_capacity_path_protection(
+    kind: str,
+    path: Path,
+    *,
+    owner: str | None = None,
+) -> dict[str, Any]:
+    """Classify a reservation target without granting project write authority."""
+    protection = storage_write_path_protection(kind, path, owner=owner)
+    if kind == storage_contracts.VAULT_ARCHIVE_KIND:
+        return protection
+    if protection.get("decision") == "allow_candidate":
+        return protection
+    project = storage_contracts.user_project_capacity_match(path)
+    if project.get("decision") != "allow_candidate":
+        return {**protection, "capacity_admission": project}
+    return {**project, "write_protection": protection}
+
+
+def storage_capacity_admission(
+    protection: Mapping[str, Any],
+    reservations: Mapping[str, Any],
+    *,
+    requested_bytes: int,
+    min_free_after: int,
+) -> dict[str, Any] | None:
+    """Report capacity-only eligibility for an already user-owned target."""
+    if protection.get("class") != "user_project_capacity":
+        return None
+    if reservations.get("ok") is False:
+        return {
+            "ok": False,
+            "decision": "deny",
+            "reason": "reservation_state_invalid",
+            "capacity_only": True,
+            "write_permission": False,
+            "cleanup_authority": False,
+        }
+    available = reservations.get("available_after_reservations_bytes")
+    if not isinstance(available, int):
+        return {
+            "ok": False,
+            "decision": "deny",
+            "reason": "capacity_unavailable",
+            "capacity_only": True,
+            "write_permission": False,
+            "cleanup_authority": False,
+        }
+    available_after = int(available) - max(0, int(requested_bytes))
+    if available_after < max(0, int(min_free_after)):
+        return {
+            "ok": False,
+            "decision": "deny",
+            "reason": "capacity_after_reservations_below_policy",
+            "available_after_bytes": available_after,
+            "capacity_only": True,
+            "write_permission": False,
+            "cleanup_authority": False,
+        }
+    return {
+        "ok": True,
+        "decision": "allow",
+        "reason": "user_owned_project_capacity_only",
+        "available_before_bytes": int(available),
+        "available_after_bytes": available_after,
+        "capacity_only": True,
+        "write_permission": False,
+        "cleanup_authority": False,
+        "target_identity": protection.get("target_identity"),
+        "owner_uid": protection.get("owner_uid"),
     }
 
 
@@ -15419,23 +15426,13 @@ def storage_reservation_acquire(
     target: str,
     owner: str,
     ttl_seconds: int,
-    owner_route: str | None = None,
-    owner_operation: str | None = None,
-    owner_claim: str | None = None,
 ) -> dict[str, Any]:
     target_path = Path(target).expanduser()
-    protection = storage_write_path_protection(
-        kind,
-        target_path,
-        owner=owner,
-        owner_route=owner_route,
-        owner_operation=owner_operation,
-        owner_claim=owner_claim,
-    )
+    protection = storage_capacity_path_protection(kind, target_path, owner=owner)
     allowed_classes = (
         {"vault_archive_allowed"}
         if kind == storage_contracts.VAULT_ARCHIVE_KIND
-        else {"host_owned_allowed", "owner_route_allowed"}
+        else {"host_owned_allowed", "user_project_capacity"}
     )
     if protection.get("decision") != "allow_candidate" or protection.get("class") not in allowed_classes:
         return {
@@ -15454,17 +15451,15 @@ def storage_reservation_acquire(
             "required_mount": protection.get("required_mount"),
             "archive_binding": protection.get("archive_binding"),
         }
-    elif protection.get("class") == "owner_route_allowed":
+    elif protection.get("class") == "user_project_capacity":
         route_metadata = {
-            "route_kind": "owner_write",
-            "route_id": protection.get("route_id"),
-            "owner": protection.get("owner"),
-            "operation": protection.get("operation"),
-            "claim": protection.get("claim"),
+            "route_kind": "user_project_capacity",
             "target": str(target_path),
             "target_identity": protection.get("target_identity"),
-            "policy_path": protection.get("policy_path"),
-            "policy_sha256": protection.get("policy_sha256"),
+            "owner_uid": protection.get("owner_uid"),
+            "capacity_only": True,
+            "write_permission": False,
+            "cleanup_authority": False,
         }
     return storage_reservations.acquire_reservation(
         STORAGE_RESERVATIONS_ROOT,
@@ -15505,11 +15500,6 @@ def storage_write_preflight(
     bytes_required: int,
     target: str,
     write_latest: bool = True,
-    *,
-    owner: str | None = None,
-    owner_route: str | None = None,
-    owner_operation: str | None = None,
-    owner_claim: str | None = None,
 ) -> dict[str, Any]:
     target_path = Path(target).expanduser()
     requested_bytes = max(0, int(bytes_required))
@@ -15522,14 +15512,8 @@ def storage_write_preflight(
         if isinstance(pressure.get("summary"), dict)
         else {}
     )
-    protection = storage_write_path_protection(
-        kind,
-        target_path,
-        owner=owner,
-        owner_route=owner_route,
-        owner_operation=owner_operation,
-        owner_claim=owner_claim,
-    )
+    protection = storage_write_path_protection(kind, target_path)
+    capacity_protection = storage_capacity_path_protection(kind, target_path)
     recommended = storage_preflight_recommended_target(kind, target_path)
     recommended_path = Path(recommended)
     recommended_usage = disk_usage_summary(recommended_path)
@@ -15550,6 +15534,12 @@ def storage_write_preflight(
         recommended_decision_usage["available_to_user_bytes"] = recommended_available_after
     large_write_threshold = 1024 * 1024 * 1024
     min_free_after = max(5 * 1024 * 1024 * 1024, int(requested_bytes * 0.10))
+    capacity_admission = storage_capacity_admission(
+        capacity_protection,
+        target_reservations,
+        requested_bytes=requested_bytes,
+        min_free_after=min_free_after,
+    )
     decision_result = storage_contracts.write_preflight_decision(
         kind=kind,
         requested_bytes=requested_bytes,
@@ -15561,8 +15551,8 @@ def storage_write_preflight(
         min_free_after=min_free_after,
         reservations_ok=bool(target_reservations.get("ok", True) and recommended_reservations.get("ok", True)),
     )
-    decision = str(decision_result["decision"])
-    reasons = list(decision_result["reasons"])
+    strict_decision = str(decision_result["decision"])
+    strict_reasons = list(decision_result["reasons"])
     pressure_findings: list[dict[str, Any]] = []
     for scope, pressure_class in (
         ("root", pressure_summary.get("root_pressure_class")),
@@ -15632,12 +15622,8 @@ def storage_write_preflight(
             "kind": kind,
             "bytes_required": requested_bytes,
             "target_requested": str(target_path),
-            "owner": owner,
-            "owner_route": owner_route,
-            "owner_operation": owner_operation,
-            "owner_claim": owner_claim,
             "target_recommended": recommended,
-            "decision": decision,
+            "decision": strict_decision,
             "dry_run": True,
         },
         enforce=False,
@@ -15646,6 +15632,24 @@ def storage_write_preflight(
         runtime_errors.append(
             {"surface": "hooks", "error": "storage_hook_failed"}
         )
+    capacity_only_candidate = (
+        isinstance(capacity_admission, dict)
+        and capacity_admission.get("ok") is True
+        and capacity_admission.get("capacity_only") is True
+        and capacity_admission.get("write_permission") is False
+        and capacity_admission.get("cleanup_authority") is False
+    )
+    capacity_only_allowed = (
+        capacity_only_candidate
+        and not runtime_errors
+        and bool(hooks.get("ok", True))
+    )
+    decision = "allow" if capacity_only_allowed else strict_decision
+    reasons = (
+        ["user_owned_project_capacity_only", *strict_reasons]
+        if capacity_only_allowed
+        else strict_reasons
+    )
     data = {
         "schema": f"{SCHEMA_PREFIX}_storage_write_preflight_v1",
         "version": VERSION,
@@ -15657,6 +15661,11 @@ def storage_write_preflight(
         ),
         "decision": decision,
         "reasons": reasons,
+        "strict_write_decision": strict_decision,
+        "strict_write_reasons": strict_reasons,
+        "capacity_only": capacity_only_allowed,
+        "write_permission": False if capacity_only_allowed else decision == "allow",
+        "cleanup_authority": False,
         "pressure_findings": pressure_findings,
         "runtime_errors": runtime_errors,
         "paths": {
@@ -15671,21 +15680,22 @@ def storage_write_preflight(
             "kind": kind,
             "bytes_required": requested_bytes,
             "target_requested": str(target_path),
-            "owner": owner,
-            "owner_route": owner_route,
-            "owner_operation": owner_operation,
-            "owner_claim": owner_claim,
         },
         "recommendation": {
             "target_recommended": recommended,
             "base": str(storage_preflight_recommended_base(kind)),
-            "use_recommended_target": decision in {"reroute", "cleanup_first", "deny"}
-            or (
-                protection.get("class") not in {"host_owned_allowed", "owner_route_allowed"}
-                and not (
-                    kind == storage_contracts.VAULT_ARCHIVE_KIND
-                    and protection.get("class") == "vault_archive_allowed"
-                    and protection.get("decision") == "allow_candidate"
+            "use_recommended_target": (
+                not capacity_only_allowed
+                and (
+                    strict_decision in {"reroute", "cleanup_first", "deny"}
+                    or (
+                        protection.get("class") != "host_owned_allowed"
+                        and not (
+                            kind == storage_contracts.VAULT_ARCHIVE_KIND
+                            and protection.get("class") == "vault_archive_allowed"
+                            and protection.get("decision") == "allow_candidate"
+                        )
+                    )
                 )
             ),
         },
@@ -15708,6 +15718,7 @@ def storage_write_preflight(
         },
         "target": {
             "protection": protection,
+            "capacity_protection": capacity_protection,
             "usage": target_usage,
             "free_after_bytes": decision_result["free_after_bytes"],
             "available_after_reservations_bytes": target_reservations.get("available_after_reservations_bytes"),
@@ -15745,6 +15756,7 @@ def storage_write_preflight(
             "recommended_target": recommended_reservations,
         },
         "capacity_basis": decision_result.get("capacity_basis"),
+        "capacity_admission": capacity_admission,
         "commands": {
             "monitor": ["abyss-machine", "storage", "monitor", "--json"],
             "cleanup_plan": ["abyss-machine", "storage", "cleanup-plan", "--json"],
@@ -19469,9 +19481,6 @@ def resource_plan(
     write_preflight_data: dict[str, Any] | None = None,
     reservation_data: dict[str, Any] | None = None,
     force_fresh_live_inputs: bool = False,
-    owner_route: str | None = None,
-    owner_operation: str | None = None,
-    owner_claim: str | None = None,
 ) -> dict[str, Any]:
     normalized_class = resource_valid_class(workload_class)
     normalized_kind = resource_valid_kind(kind)
@@ -19721,23 +19730,11 @@ def resource_plan(
     )
     if bytes_required is not None and target:
         if write_preflight is None:
-            preflight_kwargs: dict[str, Any] = {
-                "kind": "artifact",
-                "bytes_required": int(bytes_required),
-                "target": str(target),
-                "write_latest": write_latest,
-            }
-            if any((demand_owner, owner_route, owner_operation, owner_claim)):
-                preflight_kwargs.update(
-                    {
-                        "owner": demand_owner,
-                        "owner_route": owner_route,
-                        "owner_operation": owner_operation,
-                        "owner_claim": owner_claim,
-                    }
-                )
             write_preflight = storage_write_preflight(
-                **preflight_kwargs,
+                kind="artifact",
+                bytes_required=int(bytes_required),
+                target=str(target),
+                write_latest=write_latest,
             )
 
     thermal_class = str(nested_get(thermal_plan, ["thermal", "class"]) or "") if isinstance(thermal_plan, dict) else ""
@@ -19783,9 +19780,6 @@ def resource_plan(
         generated_at=now_iso(),
         startup_demand=demand_projection,
         activity=activity,
-        owner_route=owner_route,
-        owner_operation=owner_operation,
-        owner_claim=owner_claim,
     )
     data["input_freshness"] = input_freshness
     data["policy"]["live_memory_status_per_plan"] = memory_data is None
@@ -19925,9 +19919,6 @@ def resource_launch(
     workspace_owner: str | None = None,
     workspace_lease_seconds: int = 300,
     workspace_grace_seconds: int = 60,
-    owner_route: str | None = None,
-    owner_operation: str | None = None,
-    owner_claim: str | None = None,
 ) -> dict[str, Any]:
     request_started_at = now_iso()
     request_started_monotonic = time.monotonic()
@@ -20033,9 +20024,6 @@ def resource_launch(
         "force": force,
         "bytes_required": bytes_required,
         "target": target,
-        "owner_route": owner_route,
-        "owner_operation": owner_operation,
-        "owner_claim": owner_claim,
         "memory_demand_mib": memory_demand_mib,
         "demand_key": resolved_demand_key,
         "demand_owner": demand_owner,
@@ -20068,10 +20056,6 @@ def resource_launch(
                     kind="artifact",
                     bytes_required=int(bytes_required),
                     target=str(target),
-                    owner=storage_reservation_owner,
-                    owner_route=owner_route,
-                    owner_operation=owner_operation,
-                    owner_claim=owner_claim,
                     write_latest=write_latest,
                 )
             )
@@ -20336,19 +20320,16 @@ def resource_launch(
                                 and not storage_reservation
                             ):
                                 target_path = Path(str(target)).expanduser()
-                                protection = storage_write_path_protection(
+                                protection = storage_capacity_path_protection(
                                     resource_launch_storage_reservation_kind(
                                         resource_valid_kind(kind)
                                     ),
                                     target_path,
-                                    owner=storage_reservation_owner,
-                                    owner_route=owner_route,
-                                    owner_operation=owner_operation,
-                                    owner_claim=owner_claim,
                                 )
                                 if (
                                     protection.get("decision") != "allow_candidate"
-                                    or protection.get("class") not in {"host_owned_allowed", "owner_route_allowed"}
+                                    or protection.get("class")
+                                    not in {"host_owned_allowed", "user_project_capacity"}
                                 ):
                                     storage_reservation_result = {
                                         "schema": storage_reservations.SCHEMA,
@@ -20366,17 +20347,15 @@ def resource_launch(
                                     )
                                     try:
                                         route_metadata = None
-                                        if protection.get("class") == "owner_route_allowed":
+                                        if protection.get("class") == "user_project_capacity":
                                             route_metadata = {
-                                                "route_kind": "owner_write",
-                                                "route_id": protection.get("route_id"),
-                                                "owner": protection.get("owner"),
-                                                "operation": protection.get("operation"),
-                                                "claim": protection.get("claim"),
+                                                "route_kind": "user_project_capacity",
                                                 "target": str(target_path),
                                                 "target_identity": protection.get("target_identity"),
-                                                "policy_path": protection.get("policy_path"),
-                                                "policy_sha256": protection.get("policy_sha256"),
+                                                "owner_uid": protection.get("owner_uid"),
+                                                "capacity_only": True,
+                                                "write_permission": False,
+                                                "cleanup_authority": False,
                                             }
                                         storage_reservation_result = storage_reservations.acquire_reservation(
                                             STORAGE_RESERVATIONS_ROOT,
@@ -20423,6 +20402,11 @@ def resource_launch(
                                             "target": record.get("target"),
                                             "kind": record.get("kind"),
                                             "ttl_seconds": storage_reservation_ttl,
+                                            "route_metadata": record.get("route_metadata"),
+                                            "capacity_only": bool(
+                                                isinstance(record.get("route_metadata"), dict)
+                                                and record["route_metadata"].get("capacity_only") is True
+                                            ),
                                         }
                                     else:
                                         # Never launch without carrying the
@@ -20781,9 +20765,6 @@ def resource_launch(
                 "command": clean_command,
                 "bytes_required": bytes_required,
                 "target": target,
-                "owner_route": owner_route,
-                "owner_operation": owner_operation,
-                "owner_claim": owner_claim,
                 "storage_reservation_requested": bool(storage_reservation_requested),
                 "memory_demand_mib": nested_get(plan, ["inputs", "startup_demand", "requested", "demand_mib"]),
                 "demand_key": resolved_demand_key,
@@ -54095,10 +54076,6 @@ def main(argv: list[str]) -> int:
     storage_write_parser.add_argument("--kind", required=True, choices=["model-cache", "cache", "runtime", "benchmark", "container", "tmp", "artifact", "vault-archive"])
     storage_write_parser.add_argument("--bytes", dest="bytes_required", type=int, required=True)
     storage_write_parser.add_argument("--target", required=True)
-    storage_write_parser.add_argument("--owner", default=None, help="owner identity for an explicit owner write route")
-    storage_write_parser.add_argument("--owner-route", default=None, help="exact configured owner write route id")
-    storage_write_parser.add_argument("--owner-operation", default=None, help="operation admitted by the exact owner write route")
-    storage_write_parser.add_argument("--owner-claim", default=None, help="explicit owner claim bound by the exact owner write route")
     storage_write_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     storage_reservation_parser = storage_sub.add_parser(
         "write-reservation",
@@ -54112,9 +54089,6 @@ def main(argv: list[str]) -> int:
     storage_reservation_acquire_parser.add_argument("--bytes", dest="bytes_required", type=int, required=True)
     storage_reservation_acquire_parser.add_argument("--target", required=True)
     storage_reservation_acquire_parser.add_argument("--owner", required=True)
-    storage_reservation_acquire_parser.add_argument("--owner-route", default=None, help="exact configured owner write route id")
-    storage_reservation_acquire_parser.add_argument("--owner-operation", default=None, help="operation admitted by the exact owner write route")
-    storage_reservation_acquire_parser.add_argument("--owner-claim", default=None, help="explicit owner claim bound by the exact owner write route")
     storage_reservation_acquire_parser.add_argument("--ttl-seconds", type=int, default=3600)
     storage_reservation_acquire_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     storage_reservation_release_parser = storage_reservation_sub.add_parser("release")
@@ -54767,9 +54741,6 @@ def main(argv: list[str]) -> int:
     resource_plan_parser.add_argument("--scope", action="store_true", help="plan systemd scope instead of service")
     resource_plan_parser.add_argument("--bytes", dest="bytes_required", type=int, default=None, help="optional generated-write byte estimate")
     resource_plan_parser.add_argument("--target", default=None, help="optional generated-write target path for storage preflight")
-    resource_plan_parser.add_argument("--owner-route", default=None, help="exact configured owner write route id")
-    resource_plan_parser.add_argument("--owner-operation", default=None, help="operation admitted by the exact owner write route")
-    resource_plan_parser.add_argument("--owner-claim", default=None, help="explicit owner claim bound by the exact owner write route")
     resource_plan_parser.add_argument("--memory-demand-mib", type=float, default=None, help="expected incremental startup memory demand in MiB")
     resource_plan_parser.add_argument("--demand-key", default=None, help="stable non-secret owner identity for startup demand")
     resource_plan_parser.add_argument("--demand-owner", default=None, help="owner reporting the startup demand estimate")
@@ -54795,9 +54766,6 @@ def main(argv: list[str]) -> int:
     resource_launch_parser.add_argument("--timeout", type=float, default=0.0, help="timeout for systemd-run call; 0 means no timeout")
     resource_launch_parser.add_argument("--bytes", dest="bytes_required", type=int, default=None, help="optional generated-write byte estimate")
     resource_launch_parser.add_argument("--target", default=None, help="optional generated-write target path for storage preflight")
-    resource_launch_parser.add_argument("--owner-route", default=None, help="exact configured owner write route id")
-    resource_launch_parser.add_argument("--owner-operation", default=None, help="operation admitted by the exact owner write route")
-    resource_launch_parser.add_argument("--owner-claim", default=None, help="explicit owner claim bound by the exact owner write route")
     resource_launch_parser.add_argument("--memory-demand-mib", type=float, default=None, help="expected incremental startup memory demand in MiB")
     resource_launch_parser.add_argument("--demand-key", default=None, help="stable non-secret owner identity for startup demand")
     resource_launch_parser.add_argument("--demand-owner", default=None, help="owner reporting the startup demand estimate")
@@ -56405,10 +56373,6 @@ def main(argv: list[str]) -> int:
                 kind=str(args.kind),
                 bytes_required=int(args.bytes_required),
                 target=str(args.target),
-                owner=getattr(args, "owner", None),
-                owner_route=getattr(args, "owner_route", None),
-                owner_operation=getattr(args, "owner_operation", None),
-                owner_claim=getattr(args, "owner_claim", None),
                 write_latest=True,
             )
             if args.json:
@@ -56425,9 +56389,6 @@ def main(argv: list[str]) -> int:
                     target=str(args.target),
                     owner=str(args.owner),
                     ttl_seconds=int(args.ttl_seconds),
-                    owner_route=getattr(args, "owner_route", None),
-                    owner_operation=getattr(args, "owner_operation", None),
-                    owner_claim=getattr(args, "owner_claim", None),
                 )
             elif args.storage_reservation_command == "release":
                 data = storage_reservation_release(str(args.reservation_id))
@@ -57617,9 +57578,6 @@ def main(argv: list[str]) -> int:
                 force=bool(args.force),
                 bytes_required=args.bytes_required,
                 target=args.target,
-                owner_route=args.owner_route,
-                owner_operation=args.owner_operation,
-                owner_claim=args.owner_claim,
                 memory_demand_mib=args.memory_demand_mib,
                 demand_key=args.demand_key,
                 demand_owner=args.demand_owner,
@@ -57650,9 +57608,6 @@ def main(argv: list[str]) -> int:
                 timeout_sec=float(args.timeout),
                 bytes_required=args.bytes_required,
                 target=args.target,
-                owner_route=args.owner_route,
-                owner_operation=args.owner_operation,
-                owner_claim=args.owner_claim,
                 memory_demand_mib=args.memory_demand_mib,
                 demand_key=args.demand_key,
                 demand_owner=args.demand_owner,

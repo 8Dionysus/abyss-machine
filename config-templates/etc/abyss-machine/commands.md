@@ -301,7 +301,7 @@ memory validation: `abyss-machine memory validate --json`
 resource plan: `abyss-machine resource plan --class CLASS --kind KIND --memory-demand-mib MIB --demand-key ID --demand-owner OWNER --json`, unified host pre-launch decision with runtime-only startup demand projection
 resource orchestrator: `abyss-machine resource orchestrator --json`, broad read-only matrix audit for future agents and stack bridges
 resource launch: `abyss-machine resource launch --class CLASS --kind KIND -- COMMAND`, starts new work through user systemd-run only; medium-or-larger starts use a fresh live decision plus an atomic runtime-only startup reservation, without a resident controller; add `--no-thermal-sample` for dry-run/diagnostic paths that should consume the latest thermal plan instead of taking a fresh sample; add `--success-on-block` only for scheduled unattended ticks that should skip cleanly on soft gates
-owner-routed project resource writes: pass `--demand-owner OWNER --owner-route ROUTE_ID --owner-operation OPERATION --owner-claim CLAIM` together with `--bytes BYTES --target PATH` on `resource plan`/`resource launch`; the route admits capacity accounting only and does not grant filesystem or cleanup authority
+user-owned project capacity: project directories owned and writable by the invoking user may receive an automatic capacity-only reservation; target identity, free space, and concurrent leases are rechecked under the reservation lock, while write and cleanup authority remain with the project owner
 resource validation: `abyss-machine resource validate --json`
 
 Bounded light maintenance is opt-in through
@@ -790,7 +790,6 @@ abyss-machine resource launch --workspace /srv/abyss-machine/tmp/OWNER/JOB --wor
 abyss-machine storage write-preflight --kind model-cache --bytes 10000000000 --target {{ABYSS_USER_HOME}}/.cache/example --json
 abyss-machine storage write-preflight --kind model-cache --bytes 10000000000 --target {{ABYSS_MACHINE_SRV}}/cache/ai/example --json
 abyss-machine storage write-reservation acquire --reservation-id ID --kind model-cache --bytes 10000000000 --target {{ABYSS_MACHINE_SRV}}/cache/ai/example --owner OWNER --ttl-seconds 3600 --json
-# owner-routed project writes additionally supply --owner-route ROUTE_ID --owner-operation OPERATION --owner-claim CLAIM on both preflight and acquire; the configured route binds one existing exact directory (device/inode, no symlink ancestors) and admits capacity only
 abyss-machine storage write-reservation release --reservation-id ID --json
 abyss-machine storage write-reservation expire --json
 abyss-machine storage write-reservation list --json
@@ -939,7 +938,7 @@ storage capacity rule: `abyss-machine storage capacity --json` performs the boun
 storage candidate rule: hourly refresh carries the last deep evidence age without promoting readiness; bounded continuation, daily, pressure, or significant-growth deep refresh rechecks exact owner/process/mount/service/container/config/runtime/Git/Podman/Vault/fingerprint gates
 storage candidate apply boundary: a ready verdict still requires `storage candidates validate`, a candidate-bound approval, immediate no-drift preflight, and an external owner executor; this source stage records approval/receipt but performs no automatic deletion
 .aoa candidate rule: use only the session-memory owner `maintenance-cleanup` dry-run verdict; generic age/size/process heuristics cannot override it
-write preflight rule: `abyss-machine storage write-preflight --kind KIND --bytes BYTES --target PATH --json` must run before large generated writes; it returns allow/reroute/cleanup_first/deny, reports physical capacity available to the user, accounts for active write leases, and never creates or reserves data files
+write preflight rule: `abyss-machine storage write-preflight --kind KIND --bytes BYTES --target PATH --json` must run before large generated writes; it returns allow/reroute/cleanup_first/deny, reports physical capacity available to the user, accounts for active write leases, and never creates or reserves data files; an existing user-owned project target may return `allow` with `capacity_only=true`, preserving strict write and cleanup authority boundaries
 apply rule: `abyss-machine storage apply --action-id ID --dry-run --json` is the first apply step; actual apply requires `--confirm`, re-runs guard/hooks, and only executes allowlisted actions
 active-process guard: if cleanup-plan marks a path `blocked_active_process`, treat it as busy and do not clean it until the process exits or the operator explicitly accepts the consequence
 ```

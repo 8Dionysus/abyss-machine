@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 25865491,
+  "allowed_tracked_bytes": 30341830,
+  "approved_by": "repository-owner",
+  "base_ref": "25a1e28a9ba9e4ff08f65402854cdbc49a6b4b0b",
+  "changed_generated_bytes": 25865491,
+  "changed_generated_files": 345,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "351c29f6d823d080f1f158adb43ee596f0ea6c7c8404d2062fb88a8fbc6892f1",
+  "reason": "Repo Validation PR #415 owner-family drift: regenerate the current abyss-machine portable KAG family and record the owner-approved budget exceedance for the existing tracked family; no KAG source semantics changed.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 30341830,
+  "tracked_bytes_max": 27262976
+}
