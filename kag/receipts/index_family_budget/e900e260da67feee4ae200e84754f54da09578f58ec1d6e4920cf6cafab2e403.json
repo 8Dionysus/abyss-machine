@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 25090898,
+  "allowed_tracked_bytes": 30386436,
+  "approved_by": "repository-owner",
+  "base_ref": "7cca944427e3bc293bbf67f26cbfbfb1fa9aebcf",
+  "changed_generated_bytes": 25090898,
+  "changed_generated_files": 324,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "e900e260da67feee4ae200e84754f54da09578f58ec1d6e4920cf6cafab2e403",
+  "reason": "Owner-authorized CI-pinned regeneration binds Vault capacity source and tests to the portable family. Source-span changes rekey distributed shards; this budget applies only to the resulting generated digest.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 30386436,
+  "tracked_bytes_max": 27262976
+}
