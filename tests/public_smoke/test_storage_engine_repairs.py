@@ -1062,6 +1062,174 @@ def test_vault_archive_admission_requires_host_route_and_binds_mount_identity(mo
     assert bad_pair["reason"] == "archive_route_suffix_mismatch"
 
 
+def _vault_capacity_fixture(tmp_path: Path) -> tuple[Path, Path, Path, dict[str, object], dict[str, object], dict[str, object]]:
+    mount = tmp_path / "vault"
+    backup_root = mount / "Backups"
+    target = backup_root / "existing-output"
+    source_prefix = tmp_path / "source" / "owner"
+    target.mkdir(parents=True)
+    source_prefix.mkdir(parents=True)
+    route = {
+        "id": "fixture-vault-route",
+        "kind": "vault-archive",
+        "owner": "fixture-owner",
+        "source_prefix": str(source_prefix),
+        "destination_prefix": str(backup_root),
+        "required_mount_ref": "vault.mount",
+        "device_label_ref": "vault.device_label",
+        "luks_mapper_ref": "vault.luks_mapper",
+        "uuid_source": "runtime",
+    }
+    policy = {
+        "ok": True,
+        "vault": {
+            "mount": str(mount),
+            "backup_root": str(backup_root),
+            "device_label": "FIXTURE",
+            "luks_mapper": "fixture",
+        },
+        "routes": [route],
+    }
+    binding = {
+        "required_mount": str(mount),
+        "mount_id": "42",
+        "device": "0:99",
+        "fs_root": "/",
+        "filesystem": "btrfs",
+        "source": "/dev/mapper/fixture",
+        "st_dev": int(target.stat().st_dev),
+        "st_ino": int(mount.stat().st_ino),
+        "uuid": "runtime-fixture-uuid",
+        "mapper": "/dev/mapper/fixture",
+        "label": "FIXTURE",
+    }
+    return mount, backup_root, target, policy, binding, route
+
+
+def test_vault_archive_capacity_fallback_ignores_route_owner_but_keeps_write_denied(monkeypatch, tmp_path: Path) -> None:
+    _mount, _backup_root, target, policy, binding, _route = _vault_capacity_fixture(tmp_path)
+    monkeypatch.setattr(cli, "storage_archive_policy", lambda: policy)
+    monkeypatch.setattr(
+        cli.storage_lifecycle_adapters,
+        "archive_vault_mount_binding",
+        lambda _path, _mount, **_kwargs: {
+            "ok": True,
+            "identity": dict(binding),
+            "device": {
+                "mapper": binding["mapper"],
+                "label": binding["label"],
+                "uuid": binding["uuid"],
+            },
+        },
+    )
+
+    strict = cli.storage_write_path_protection("vault-archive", target, owner="other-owner")
+    assert strict["decision"] == "deny"
+    assert strict["reason"] == "archive_route_owner_mismatch"
+
+    capacity = cli.storage_capacity_path_protection("vault-archive", target, owner="other-owner")
+    assert capacity["decision"] == "allow_candidate"
+    assert capacity["class"] == "vault_archive_capacity"
+    assert capacity["reason"] == "existing_vault_output_capacity_only"
+    assert capacity["capacity_only"] is True
+    assert capacity["write_permission"] is False
+    assert capacity["cleanup_authority"] is False
+    assert capacity["write_protection"]["decision"] == "deny"
+
+
+def test_vault_archive_capacity_preflight_reports_capacity_reason_only(monkeypatch, tmp_path: Path) -> None:
+    _mount, _backup_root, target, policy, binding, _route = _vault_capacity_fixture(tmp_path)
+    capacity_policy = {**policy, "routes": []}
+    monkeypatch.setattr(cli, "storage_archive_policy", lambda: capacity_policy)
+    monkeypatch.setattr(
+        cli.storage_lifecycle_adapters,
+        "archive_vault_mount_binding",
+        lambda *_args, **_kwargs: {"ok": True, "identity": dict(binding), "device": {}},
+    )
+    monkeypatch.setattr(
+        cli,
+        "storage_pressure",
+        lambda **_kwargs: {
+            "ok": True,
+            "summary": {"root_pressure_class": "green", "srv_pressure_class": "green"},
+            "roots": {},
+        },
+    )
+    monkeypatch.setattr(
+        cli,
+        "disk_usage_summary",
+        lambda _path, **_kwargs: {
+            "available_to_user_bytes": 10_000_000_000,
+            "free_bytes": 10_000_000_000,
+        },
+    )
+    monkeypatch.setattr(
+        cli.storage_reservations,
+        "capacity_snapshot",
+        lambda *_args, **_kwargs: {
+            "ok": True,
+            "available_to_user_bytes": 10_000_000_000,
+            "available_after_reservations_bytes": 10_000_000_000,
+        },
+    )
+    monkeypatch.setattr(cli, "run_storage_hooks", lambda *_args, **_kwargs: {"ok": True})
+
+    result = cli.storage_write_preflight(
+        kind="vault-archive",
+        bytes_required=1024,
+        target=str(target),
+        write_latest=False,
+    )
+
+    assert result["ok"] is True
+    assert result["decision"] == "allow"
+    assert result["strict_write_decision"] == "deny"
+    assert result["capacity_only"] is True
+    assert result["write_permission"] is False
+    assert result["cleanup_authority"] is False
+    assert result["reasons"] == ["existing_vault_output_capacity_only"]
+    assert result["target"]["capacity_protection"]["class"] == "vault_archive_capacity"
+
+
+def test_vault_archive_capacity_requires_valid_global_root_and_mount_identity(monkeypatch, tmp_path: Path) -> None:
+    _mount, _backup_root, target, policy, binding, _route = _vault_capacity_fixture(tmp_path)
+
+    monkeypatch.setattr(
+        cli.storage_lifecycle_adapters,
+        "archive_vault_mount_binding",
+        lambda *_args, **_kwargs: {
+            "ok": False,
+            "reasons": ["archive_required_mount_absent_or_ambiguous"],
+        },
+    )
+    offline = cli.storage_vault_capacity_path_protection(target, archive_policy=policy)
+    assert offline["decision"] == "deny"
+    assert offline["reason"] == "archive_vault_identity_invalid"
+
+    wrong_device = dict(binding)
+    wrong_device["st_dev"] = int(target.stat().st_dev) + 1
+    monkeypatch.setattr(
+        cli.storage_lifecycle_adapters,
+        "archive_vault_mount_binding",
+        lambda *_args, **_kwargs: {"ok": True, "identity": wrong_device, "device": {}},
+    )
+    mismatch = cli.storage_vault_capacity_path_protection(target, archive_policy=policy)
+    assert mismatch["decision"] == "deny"
+    assert mismatch["reason"] == "archive_vault_identity_invalid"
+    assert mismatch["archive_binding_reasons"] == ["archive_target_device_identity_mismatch"]
+
+    outside_root = {
+        **policy,
+        "vault": {
+            **policy["vault"],
+            "backup_root": str(tmp_path / "outside-root"),
+        },
+    }
+    outside = cli.storage_vault_capacity_path_protection(target, archive_policy=outside_root)
+    assert outside["decision"] == "deny"
+    assert outside["reason"] == "archive_backup_root_outside_required_mount"
+
+
 def test_vault_archive_file_copy_wires_exact_pair_and_reservation(monkeypatch, tmp_path: Path) -> None:
     source = tmp_path / "source" / "result.json"
     destination = tmp_path / "vault" / "result.json"

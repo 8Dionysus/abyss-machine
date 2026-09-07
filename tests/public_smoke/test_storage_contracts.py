@@ -168,6 +168,36 @@ def test_user_project_capacity_rejects_symlink_target_and_ancestor(tmp_path: Pat
     assert storage_contracts.user_project_capacity_match(nested)["reason"] == "capacity_target_symlink_ancestor"
 
 
+def test_vault_archive_capacity_match_is_existing_user_directory_only(tmp_path: Path) -> None:
+    root = tmp_path / "vault" / "Backups"
+    target = root / "existing-output"
+    root.mkdir(parents=True)
+    target.mkdir()
+
+    allowed = storage_contracts.vault_archive_capacity_match(target, root)
+    assert allowed["decision"] == "allow_candidate"
+    assert allowed["class"] == "vault_archive_capacity"
+    assert allowed["reason"] == "existing_vault_output_capacity_only"
+    assert allowed["capacity_only"] is True
+    assert allowed["write_permission"] is False
+    assert allowed["cleanup_authority"] is False
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    assert storage_contracts.vault_archive_capacity_match(outside, root)["reason"] == "capacity_target_outside_vault_root"
+
+    symlink = root / "symlink-output"
+    symlink.symlink_to(target, target_is_directory=True)
+    assert storage_contracts.vault_archive_capacity_match(symlink, root)["reason"] == "capacity_target_symlink"
+
+    wrong_owner = storage_contracts.vault_archive_capacity_match(
+        target,
+        root,
+        uid=os.geteuid() + 1,
+    )
+    assert wrong_owner["reason"] == "capacity_target_owner_mismatch"
+
+
 def test_storage_write_preflight_decision_keeps_large_writes_on_host_owned_routes(tmp_path: Path) -> None:
     decision = storage_contracts.write_preflight_decision(
         kind="model-cache",
