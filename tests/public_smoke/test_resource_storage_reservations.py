@@ -75,8 +75,13 @@ def test_project_preflight_keeps_write_denied_but_admits_capacity_only(
         write_latest=False,
     )
 
-    assert result["ok"] is False
-    assert result["decision"] == "deny"
+    assert result["ok"] is True
+    assert result["decision"] == "allow"
+    assert result["capacity_only"] is True
+    assert result["write_permission"] is False
+    assert result["cleanup_authority"] is False
+    assert result["strict_write_decision"] == "deny"
+    assert result["recommendation"]["use_recommended_target"] is False
     assert result["target"]["protection"]["decision"] == "deny"
     assert result["capacity_admission"]["ok"] is True
     assert result["capacity_admission"]["capacity_only"] is True

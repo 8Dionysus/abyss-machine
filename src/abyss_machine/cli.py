@@ -15551,8 +15551,8 @@ def storage_write_preflight(
         min_free_after=min_free_after,
         reservations_ok=bool(target_reservations.get("ok", True) and recommended_reservations.get("ok", True)),
     )
-    decision = str(decision_result["decision"])
-    reasons = list(decision_result["reasons"])
+    strict_decision = str(decision_result["decision"])
+    strict_reasons = list(decision_result["reasons"])
     pressure_findings: list[dict[str, Any]] = []
     for scope, pressure_class in (
         ("root", pressure_summary.get("root_pressure_class")),
@@ -15623,7 +15623,7 @@ def storage_write_preflight(
             "bytes_required": requested_bytes,
             "target_requested": str(target_path),
             "target_recommended": recommended,
-            "decision": decision,
+            "decision": strict_decision,
             "dry_run": True,
         },
         enforce=False,
@@ -15632,6 +15632,24 @@ def storage_write_preflight(
         runtime_errors.append(
             {"surface": "hooks", "error": "storage_hook_failed"}
         )
+    capacity_only_candidate = (
+        isinstance(capacity_admission, dict)
+        and capacity_admission.get("ok") is True
+        and capacity_admission.get("capacity_only") is True
+        and capacity_admission.get("write_permission") is False
+        and capacity_admission.get("cleanup_authority") is False
+    )
+    capacity_only_allowed = (
+        capacity_only_candidate
+        and not runtime_errors
+        and bool(hooks.get("ok", True))
+    )
+    decision = "allow" if capacity_only_allowed else strict_decision
+    reasons = (
+        ["user_owned_project_capacity_only", *strict_reasons]
+        if capacity_only_allowed
+        else strict_reasons
+    )
     data = {
         "schema": f"{SCHEMA_PREFIX}_storage_write_preflight_v1",
         "version": VERSION,
@@ -15643,6 +15661,11 @@ def storage_write_preflight(
         ),
         "decision": decision,
         "reasons": reasons,
+        "strict_write_decision": strict_decision,
+        "strict_write_reasons": strict_reasons,
+        "capacity_only": capacity_only_allowed,
+        "write_permission": False if capacity_only_allowed else decision == "allow",
+        "cleanup_authority": False,
         "pressure_findings": pressure_findings,
         "runtime_errors": runtime_errors,
         "paths": {
@@ -15661,13 +15684,18 @@ def storage_write_preflight(
         "recommendation": {
             "target_recommended": recommended,
             "base": str(storage_preflight_recommended_base(kind)),
-            "use_recommended_target": decision in {"reroute", "cleanup_first", "deny"}
-            or (
-                protection.get("class") != "host_owned_allowed"
-                and not (
-                    kind == storage_contracts.VAULT_ARCHIVE_KIND
-                    and protection.get("class") == "vault_archive_allowed"
-                    and protection.get("decision") == "allow_candidate"
+            "use_recommended_target": (
+                not capacity_only_allowed
+                and (
+                    strict_decision in {"reroute", "cleanup_first", "deny"}
+                    or (
+                        protection.get("class") != "host_owned_allowed"
+                        and not (
+                            kind == storage_contracts.VAULT_ARCHIVE_KIND
+                            and protection.get("class") == "vault_archive_allowed"
+                            and protection.get("decision") == "allow_candidate"
+                        )
+                    )
                 )
             ),
         },

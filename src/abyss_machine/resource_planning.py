@@ -1165,6 +1165,7 @@ def storage_gate(storage_data: dict[str, Any], write_preflight: dict[str, Any] |
             and capacity_only.get("capacity_only") is True
             and capacity_only.get("write_permission") is False
             and capacity_only.get("cleanup_authority") is False
+            and not write_preflight.get("runtime_errors")
         )
         if capacity_only_allowed:
             allowed = True
