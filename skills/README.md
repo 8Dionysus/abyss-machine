@@ -37,6 +37,12 @@ removed after use.
 single OS-level `os-user-default` profile. This repository does not duplicate
 the bundle under `.agents/skills`.
 
+That profile's authorized local source copies use the `aoa-skills` owner
+installer and its source/receipt checks. They do not generate a portable
+release merely by copying a skill directory. Artifact policy and exact gates
+still apply to release, runtime, portable-export, and other governed subjects;
+the skill must not widen that policy through its trigger wording.
+
 ## Verification posture
 
 Manual tasks establish usefulness. `skills/AGENTS.md` defines the boundary.
