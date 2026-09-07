@@ -9561,6 +9561,78 @@ def storage_write_path_protection(kind: str, path: Path, *, owner: str | None = 
     }
 
 
+def storage_capacity_path_protection(
+    kind: str,
+    path: Path,
+    *,
+    owner: str | None = None,
+) -> dict[str, Any]:
+    """Classify a reservation target without granting project write authority."""
+    protection = storage_write_path_protection(kind, path, owner=owner)
+    if kind == storage_contracts.VAULT_ARCHIVE_KIND:
+        return protection
+    if protection.get("decision") == "allow_candidate":
+        return protection
+    project = storage_contracts.user_project_capacity_match(path)
+    if project.get("decision") != "allow_candidate":
+        return {**protection, "capacity_admission": project}
+    return {**project, "write_protection": protection}
+
+
+def storage_capacity_admission(
+    protection: Mapping[str, Any],
+    reservations: Mapping[str, Any],
+    *,
+    requested_bytes: int,
+    min_free_after: int,
+) -> dict[str, Any] | None:
+    """Report capacity-only eligibility for an already user-owned target."""
+    if protection.get("class") != "user_project_capacity":
+        return None
+    if reservations.get("ok") is False:
+        return {
+            "ok": False,
+            "decision": "deny",
+            "reason": "reservation_state_invalid",
+            "capacity_only": True,
+            "write_permission": False,
+            "cleanup_authority": False,
+        }
+    available = reservations.get("available_after_reservations_bytes")
+    if not isinstance(available, int):
+        return {
+            "ok": False,
+            "decision": "deny",
+            "reason": "capacity_unavailable",
+            "capacity_only": True,
+            "write_permission": False,
+            "cleanup_authority": False,
+        }
+    available_after = int(available) - max(0, int(requested_bytes))
+    if available_after < max(0, int(min_free_after)):
+        return {
+            "ok": False,
+            "decision": "deny",
+            "reason": "capacity_after_reservations_below_policy",
+            "available_after_bytes": available_after,
+            "capacity_only": True,
+            "write_permission": False,
+            "cleanup_authority": False,
+        }
+    return {
+        "ok": True,
+        "decision": "allow",
+        "reason": "user_owned_project_capacity_only",
+        "available_before_bytes": int(available),
+        "available_after_bytes": available_after,
+        "capacity_only": True,
+        "write_permission": False,
+        "cleanup_authority": False,
+        "target_identity": protection.get("target_identity"),
+        "owner_uid": protection.get("owner_uid"),
+    }
+
+
 def storage_archive_pair_admission(source: str, destination: str, *, owner: str) -> dict[str, Any]:
     """Validate an owner source/destination suffix pair before file copy."""
     source_path = Path(source).expanduser()
@@ -15356,13 +15428,13 @@ def storage_reservation_acquire(
     ttl_seconds: int,
 ) -> dict[str, Any]:
     target_path = Path(target).expanduser()
-    protection = storage_write_path_protection(kind, target_path, owner=owner)
-    allowed_class = (
-        "vault_archive_allowed"
+    protection = storage_capacity_path_protection(kind, target_path, owner=owner)
+    allowed_classes = (
+        {"vault_archive_allowed"}
         if kind == storage_contracts.VAULT_ARCHIVE_KIND
-        else "host_owned_allowed"
+        else {"host_owned_allowed", "user_project_capacity"}
     )
-    if protection.get("decision") != "allow_candidate" or protection.get("class") != allowed_class:
+    if protection.get("decision") != "allow_candidate" or protection.get("class") not in allowed_classes:
         return {
             "schema": storage_reservations.SCHEMA,
             "ok": False,
@@ -15378,6 +15450,16 @@ def storage_reservation_acquire(
             "owner": protection.get("owner"),
             "required_mount": protection.get("required_mount"),
             "archive_binding": protection.get("archive_binding"),
+        }
+    elif protection.get("class") == "user_project_capacity":
+        route_metadata = {
+            "route_kind": "user_project_capacity",
+            "target": str(target_path),
+            "target_identity": protection.get("target_identity"),
+            "owner_uid": protection.get("owner_uid"),
+            "capacity_only": True,
+            "write_permission": False,
+            "cleanup_authority": False,
         }
     return storage_reservations.acquire_reservation(
         STORAGE_RESERVATIONS_ROOT,
@@ -15431,6 +15513,7 @@ def storage_write_preflight(
         else {}
     )
     protection = storage_write_path_protection(kind, target_path)
+    capacity_protection = storage_capacity_path_protection(kind, target_path)
     recommended = storage_preflight_recommended_target(kind, target_path)
     recommended_path = Path(recommended)
     recommended_usage = disk_usage_summary(recommended_path)
@@ -15451,6 +15534,12 @@ def storage_write_preflight(
         recommended_decision_usage["available_to_user_bytes"] = recommended_available_after
     large_write_threshold = 1024 * 1024 * 1024
     min_free_after = max(5 * 1024 * 1024 * 1024, int(requested_bytes * 0.10))
+    capacity_admission = storage_capacity_admission(
+        capacity_protection,
+        target_reservations,
+        requested_bytes=requested_bytes,
+        min_free_after=min_free_after,
+    )
     decision_result = storage_contracts.write_preflight_decision(
         kind=kind,
         requested_bytes=requested_bytes,
@@ -15601,6 +15690,7 @@ def storage_write_preflight(
         },
         "target": {
             "protection": protection,
+            "capacity_protection": capacity_protection,
             "usage": target_usage,
             "free_after_bytes": decision_result["free_after_bytes"],
             "available_after_reservations_bytes": target_reservations.get("available_after_reservations_bytes"),
@@ -15638,6 +15728,7 @@ def storage_write_preflight(
             "recommended_target": recommended_reservations,
         },
         "capacity_basis": decision_result.get("capacity_basis"),
+        "capacity_admission": capacity_admission,
         "commands": {
             "monitor": ["abyss-machine", "storage", "monitor", "--json"],
             "cleanup_plan": ["abyss-machine", "storage", "cleanup-plan", "--json"],
@@ -20201,10 +20292,16 @@ def resource_launch(
                                 and not storage_reservation
                             ):
                                 target_path = Path(str(target)).expanduser()
-                                protection = storage_path_protection(target_path)
+                                protection = storage_capacity_path_protection(
+                                    resource_launch_storage_reservation_kind(
+                                        resource_valid_kind(kind)
+                                    ),
+                                    target_path,
+                                )
                                 if (
                                     protection.get("decision") != "allow_candidate"
-                                    or protection.get("class") != "host_owned_allowed"
+                                    or protection.get("class")
+                                    not in {"host_owned_allowed", "user_project_capacity"}
                                 ):
                                     storage_reservation_result = {
                                         "schema": storage_reservations.SCHEMA,
@@ -20221,6 +20318,17 @@ def resource_launch(
                                         int(requested_storage_bytes * 0.10),
                                     )
                                     try:
+                                        route_metadata = None
+                                        if protection.get("class") == "user_project_capacity":
+                                            route_metadata = {
+                                                "route_kind": "user_project_capacity",
+                                                "target": str(target_path),
+                                                "target_identity": protection.get("target_identity"),
+                                                "owner_uid": protection.get("owner_uid"),
+                                                "capacity_only": True,
+                                                "write_permission": False,
+                                                "cleanup_authority": False,
+                                            }
                                         storage_reservation_result = storage_reservations.acquire_reservation(
                                             STORAGE_RESERVATIONS_ROOT,
                                             reservation_id=str(storage_reservation_id),
@@ -20234,6 +20342,7 @@ def resource_launch(
                                             min_free_after=min_free_after,
                                             hold_until_terminal=True,
                                             execution_identity=storage_execution_identity,
+                                            route_metadata=route_metadata,
                                         )
                                     except (OSError, TypeError, ValueError) as exc:
                                         storage_reservation_result = {
@@ -20265,6 +20374,11 @@ def resource_launch(
                                             "target": record.get("target"),
                                             "kind": record.get("kind"),
                                             "ttl_seconds": storage_reservation_ttl,
+                                            "route_metadata": record.get("route_metadata"),
+                                            "capacity_only": bool(
+                                                isinstance(record.get("route_metadata"), dict)
+                                                and record["route_metadata"].get("capacity_only") is True
+                                            ),
                                         }
                                     else:
                                         # Never launch without carrying the

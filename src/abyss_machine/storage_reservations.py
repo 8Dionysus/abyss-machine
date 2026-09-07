@@ -19,6 +19,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import tempfile
 from typing import Any, Callable, Mapping
 
@@ -109,6 +110,39 @@ def _target_filesystem_device(target: Path) -> int | None:
         return None
 
 
+def _capacity_target_identity_ok(target: Path, route_metadata: Mapping[str, Any] | None) -> bool:
+    """Recheck a user-project target without turning accounting into access."""
+    if not route_metadata or route_metadata.get("route_kind") != "user_project_capacity":
+        return True
+    expected = str(route_metadata.get("target") or "")
+    expected_identity = route_metadata.get("target_identity")
+    if (
+        not expected
+        or str(target) != expected
+        or not target.is_absolute()
+        or ".." in target.parts
+        or not isinstance(expected_identity, Mapping)
+        or expected_identity.get("type") != "directory"
+    ):
+        return False
+    try:
+        lexical = Path(os.path.abspath(str(target)))
+        target_stat = target.lstat()
+        if stat.S_ISLNK(target_stat.st_mode) or not stat.S_ISDIR(target_stat.st_mode):
+            return False
+        if target.resolve(strict=True) != lexical:
+            return False
+        return (
+            int(target_stat.st_dev) == int(expected_identity.get("st_dev"))
+            and int(target_stat.st_ino) == int(expected_identity.get("st_ino"))
+            and int(target_stat.st_uid) == int(expected_identity.get("st_uid"))
+        )
+    except OSError:
+        return False
+    except (TypeError, ValueError):
+        return False
+
+
 def _route_filesystem_device(target: Path, route_metadata: Mapping[str, Any] | None) -> int | None:
     """Validate route identity and return the same device used for accounting.
 
@@ -122,6 +156,8 @@ def _route_filesystem_device(target: Path, route_metadata: Mapping[str, Any] | N
         return None
     if not route_metadata:
         return actual_device
+    if route_metadata.get("route_kind") == "user_project_capacity":
+        return actual_device if _capacity_target_identity_ok(target, route_metadata) else None
     identity = route_metadata.get("archive_binding")
     if not isinstance(identity, Mapping):
         return None
@@ -410,16 +446,26 @@ def acquire_reservation(
             # snapshot or a lease can be counted against the wrong filesystem.
             filesystem_device = _route_filesystem_device(target, normalized_route_metadata)
             if filesystem_device is None:
+                if normalized_route_metadata and normalized_route_metadata.get("route_kind") == "user_project_capacity":
+                    route_error = "capacity_target_identity_mismatch"
+                elif normalized_route_metadata:
+                    route_error = "route_filesystem_identity_mismatch"
+                else:
+                    route_error = "target_filesystem_unavailable"
                 return {
                     "schema": SCHEMA,
                     "ok": False,
                     "decision": "blocked",
                     "reservation_id": reservation_id,
-                    "error": (
-                        "route_filesystem_identity_mismatch"
-                        if normalized_route_metadata
-                        else "target_filesystem_unavailable"
-                    ),
+                    "error": route_error,
+                }
+            if not _capacity_target_identity_ok(target, normalized_route_metadata):
+                return {
+                    "schema": SCHEMA,
+                    "ok": False,
+                    "decision": "blocked",
+                    "reservation_id": reservation_id,
+                    "error": "capacity_target_identity_mismatch",
                 }
             filesystem_key = _filesystem_key_for_device(filesystem_device)
             existing = next((item for item in records if item.get("reservation_id") == reservation_id), None)
@@ -460,6 +506,15 @@ def acquire_reservation(
                     "decision": "blocked",
                     "reservation_id": reservation_id,
                     "error": "target_filesystem_changed_during_capacity",
+                    "filesystem_key": filesystem_key,
+                }
+            if not _capacity_target_identity_ok(target, normalized_route_metadata):
+                return {
+                    "schema": SCHEMA,
+                    "ok": False,
+                    "decision": "blocked",
+                    "reservation_id": reservation_id,
+                    "error": "capacity_target_identity_changed_during_capacity",
                     "filesystem_key": filesystem_key,
                 }
             available = usage.get("available_to_user_bytes")

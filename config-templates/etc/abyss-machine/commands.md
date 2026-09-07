@@ -301,6 +301,7 @@ memory validation: `abyss-machine memory validate --json`
 resource plan: `abyss-machine resource plan --class CLASS --kind KIND --memory-demand-mib MIB --demand-key ID --demand-owner OWNER --json`, unified host pre-launch decision with runtime-only startup demand projection
 resource orchestrator: `abyss-machine resource orchestrator --json`, broad read-only matrix audit for future agents and stack bridges
 resource launch: `abyss-machine resource launch --class CLASS --kind KIND -- COMMAND`, starts new work through user systemd-run only; medium-or-larger starts use a fresh live decision plus an atomic runtime-only startup reservation, without a resident controller; add `--no-thermal-sample` for dry-run/diagnostic paths that should consume the latest thermal plan instead of taking a fresh sample; add `--success-on-block` only for scheduled unattended ticks that should skip cleanly on soft gates
+user-owned project capacity: project directories owned and writable by the invoking user may receive an automatic capacity-only reservation; target identity, free space, and concurrent leases are rechecked under the reservation lock, while write and cleanup authority remain with the project owner
 resource validation: `abyss-machine resource validate --json`
 
 Bounded light maintenance is opt-in through

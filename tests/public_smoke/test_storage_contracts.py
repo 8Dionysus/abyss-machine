@@ -130,6 +130,44 @@ def test_storage_protection_and_cleanup_actions_are_operator_gated(tmp_path: Pat
     assert "work_path_protected" in action["blocked_reasons"]
 
 
+def test_user_project_capacity_is_identity_bound_and_has_no_write_authority(tmp_path: Path) -> None:
+    target = tmp_path / "project" / "generated"
+    target.mkdir(parents=True)
+
+    capacity = storage_contracts.user_project_capacity_match(target)
+
+    assert capacity["decision"] == "allow_candidate"
+    assert capacity["class"] == "user_project_capacity"
+    assert capacity["capacity_only"] is True
+    assert capacity["write_permission"] is False
+    assert capacity["cleanup_authority"] is False
+    assert capacity["target_identity"]["type"] == "directory"
+    assert capacity["target_identity"]["st_uid"] == os.geteuid()
+
+    replaced = target.with_name("generated-old")
+    target.rename(replaced)
+    target.mkdir()
+    changed = storage_contracts.user_project_capacity_match(target)
+    assert changed["decision"] == "allow_candidate"
+    assert changed["target_identity"]["st_ino"] != capacity["target_identity"]["st_ino"]
+
+
+def test_user_project_capacity_rejects_symlink_target_and_ancestor(tmp_path: Path) -> None:
+    target = tmp_path / "project" / "generated"
+    target.mkdir(parents=True)
+    target_link = tmp_path / "project-link"
+    target_link.symlink_to(target, target_is_directory=True)
+    assert storage_contracts.user_project_capacity_match(target_link)["reason"] == "capacity_target_symlink"
+
+    real_parent = tmp_path / "real-parent"
+    real_parent.mkdir()
+    parent_link = tmp_path / "parent-link"
+    parent_link.symlink_to(real_parent, target_is_directory=True)
+    nested = parent_link / "generated"
+    (real_parent / "generated").mkdir()
+    assert storage_contracts.user_project_capacity_match(nested)["reason"] == "capacity_target_symlink_ancestor"
+
+
 def test_storage_write_preflight_decision_keeps_large_writes_on_host_owned_routes(tmp_path: Path) -> None:
     decision = storage_contracts.write_preflight_decision(
         kind="model-cache",

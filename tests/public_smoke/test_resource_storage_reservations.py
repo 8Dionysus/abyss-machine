@@ -15,6 +15,7 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from abyss_machine import cli
+from abyss_machine import resource_planning
 from abyss_machine import resource_adapters
 from abyss_machine import resource_runner
 from abyss_machine import storage_reservations
@@ -25,6 +26,212 @@ def _fake_capacity(_path: Path, **_kwargs: object) -> dict[str, int]:
         "available_to_user_bytes": 10_000_000_000,
         "free_bytes": 10_000_000_000,
     }
+
+
+def test_project_preflight_keeps_write_denied_but_admits_capacity_only(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "project" / "generated"
+    target.mkdir(parents=True)
+    monkeypatch.setattr(
+        cli,
+        "storage_path_protection",
+        lambda _path: {
+            "decision": "deny",
+            "class": "protected_read_only",
+            "owner": "project-owner",
+            "reason": "project writes stay owner-local",
+        },
+    )
+    monkeypatch.setattr(
+        cli,
+        "storage_pressure",
+        lambda **_kwargs: {
+            "ok": True,
+            "policy_ok": True,
+            "summary": {"root_pressure_class": "green", "srv_pressure_class": "green"},
+            "roots": {},
+        },
+    )
+    monkeypatch.setattr(cli, "storage_preflight_recommended_target", lambda _kind, requested: str(requested))
+    monkeypatch.setattr(cli, "storage_preflight_recommended_base", lambda _kind: target.parent)
+    monkeypatch.setattr(cli, "disk_usage_summary", _fake_capacity)
+    monkeypatch.setattr(
+        cli.storage_reservations,
+        "capacity_snapshot",
+        lambda *_args, **_kwargs: {
+            "ok": True,
+            "available_to_user_bytes": 10_000_000_000,
+            "available_after_reservations_bytes": 10_000_000_000,
+        },
+    )
+    monkeypatch.setattr(cli, "run_storage_hooks", lambda *_args, **_kwargs: {"ok": True})
+
+    result = cli.storage_write_preflight(
+        kind="artifact",
+        bytes_required=128,
+        target=str(target),
+        write_latest=False,
+    )
+
+    assert result["ok"] is False
+    assert result["decision"] == "deny"
+    assert result["target"]["protection"]["decision"] == "deny"
+    assert result["capacity_admission"]["ok"] is True
+    assert result["capacity_admission"]["capacity_only"] is True
+    assert result["capacity_admission"]["write_permission"] is False
+    blocked, denied, warnings = resource_planning.storage_gate(
+        {},
+        result,
+    )
+    assert blocked == []
+    assert denied == []
+    assert "storage_capacity_admitted_without_host_write_authority" in warnings
+
+
+def test_user_project_reservation_records_identity_and_shares_capacity_bucket(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "project" / "generated"
+    target.mkdir(parents=True)
+    storage_root = tmp_path / "reservations"
+    capacity = lambda _path, **_kwargs: {
+        "available_to_user_bytes": 1_000,
+        "free_bytes": 1_000,
+    }
+    monkeypatch.setattr(
+        cli,
+        "storage_path_protection",
+        lambda _path: {
+            "decision": "deny",
+            "class": "protected_read_only",
+            "owner": "project-owner",
+        },
+    )
+    protection = cli.storage_capacity_path_protection("artifact", target)
+    assert protection["class"] == "user_project_capacity"
+    metadata = {
+        "route_kind": "user_project_capacity",
+        "target": str(target),
+        "target_identity": protection["target_identity"],
+        "owner_uid": protection["owner_uid"],
+        "capacity_only": True,
+        "write_permission": False,
+        "cleanup_authority": False,
+    }
+    first = storage_reservations.acquire_reservation(
+        storage_root,
+        reservation_id="project-first",
+        kind="artifact",
+        requested_bytes=600,
+        target=target,
+        owner="tree-of-sophia",
+        ttl_seconds=60,
+        min_free_after=100,
+        route_metadata=metadata,
+        disk_usage=capacity,
+    )
+    assert first["ok"] is True
+    metadata = first["reservation"]["route_metadata"]
+    assert metadata["route_kind"] == "user_project_capacity"
+    assert metadata["capacity_only"] is True
+    assert metadata["write_permission"] is False
+    assert metadata["cleanup_authority"] is False
+    assert metadata["target_identity"]["type"] == "directory"
+
+    second = storage_reservations.acquire_reservation(
+        storage_root,
+        reservation_id="project-second",
+        kind="artifact",
+        requested_bytes=350,
+        target=target,
+        owner="tree-of-sophia",
+        ttl_seconds=60,
+        min_free_after=100,
+        route_metadata=metadata,
+        disk_usage=capacity,
+    )
+    assert second["ok"] is False
+    assert second["error"] == "available_capacity_after_reservations_below_policy"
+
+
+def test_user_project_reservation_rejects_directory_replacement(tmp_path: Path) -> None:
+    target = tmp_path / "project" / "generated"
+    target.mkdir(parents=True)
+    match = storage_reservations._capacity_target_identity_ok
+    metadata = {
+        "route_kind": "user_project_capacity",
+        "target": str(target),
+        "target_identity": {
+            "st_dev": target.stat().st_dev,
+            "st_ino": target.stat().st_ino,
+            "st_uid": target.stat().st_uid,
+            "type": "directory",
+        },
+        "capacity_only": True,
+        "write_permission": False,
+        "cleanup_authority": False,
+    }
+    target.rename(target.with_name("generated-old"))
+    target.mkdir()
+
+    assert match(target, metadata) is False
+    result = storage_reservations.acquire_reservation(
+        tmp_path / "reservations",
+        reservation_id="project-replaced",
+        kind="artifact",
+        requested_bytes=1,
+        target=target,
+        owner="tree-of-sophia",
+        ttl_seconds=60,
+        route_metadata=metadata,
+        disk_usage=_fake_capacity,
+    )
+    assert result["ok"] is False
+    assert result["error"] == "capacity_target_identity_mismatch"
+
+
+def test_user_project_reservation_rechecks_identity_after_capacity_read(monkeypatch, tmp_path: Path) -> None:
+    target = tmp_path / "project" / "generated"
+    target.mkdir(parents=True)
+    identity = target.stat()
+    metadata = {
+        "route_kind": "user_project_capacity",
+        "target": str(target),
+        "target_identity": {
+            "st_dev": identity.st_dev,
+            "st_ino": identity.st_ino,
+            "st_uid": identity.st_uid,
+            "type": "directory",
+        },
+        "capacity_only": True,
+        "write_permission": False,
+        "cleanup_authority": False,
+    }
+    swapped = {"done": False}
+
+    def replace_during_capacity(_path: Path, **_kwargs: object) -> dict[str, int]:
+        if not swapped["done"]:
+            swapped["done"] = True
+            target.rename(target.with_name("generated-old"))
+            target.mkdir()
+        return _fake_capacity(target)
+
+    result = storage_reservations.acquire_reservation(
+        tmp_path / "reservations",
+        reservation_id="project-capacity-replaced",
+        kind="artifact",
+        requested_bytes=1,
+        target=target,
+        owner="tree-of-sophia",
+        ttl_seconds=60,
+        route_metadata=metadata,
+        disk_usage=replace_during_capacity,
+    )
+    assert result["ok"] is False
+    assert result["error"] == "capacity_target_identity_changed_during_capacity"
 
 
 def test_allowed_srv_write_remains_green_when_root_pressure_is_a_finding(monkeypatch, tmp_path: Path) -> None:

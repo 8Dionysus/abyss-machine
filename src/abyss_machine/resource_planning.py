@@ -1158,6 +1158,17 @@ def storage_gate(storage_data: dict[str, Any], write_preflight: dict[str, Any] |
             if isinstance(explicit_allowed, bool)
             else bool(write_preflight.get("ok")) and decision == "allow"
         )
+        capacity_only = write_preflight.get("capacity_admission")
+        capacity_only_allowed = (
+            isinstance(capacity_only, dict)
+            and capacity_only.get("ok") is True
+            and capacity_only.get("capacity_only") is True
+            and capacity_only.get("write_permission") is False
+            and capacity_only.get("cleanup_authority") is False
+        )
+        if capacity_only_allowed:
+            allowed = True
+            warnings.append("storage_capacity_admitted_without_host_write_authority")
         if not allowed:
             reason = f"storage_write_preflight_{decision or 'blocked'}"
             if decision == "deny":

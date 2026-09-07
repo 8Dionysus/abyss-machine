@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
+import stat
 from typing import Any
 
 
@@ -625,6 +627,99 @@ def path_protection(path: Path, *, abyss_machine_root: Path, protected_roots: li
         "owner": "unknown",
         "matched_root": None,
         "reason": "Unknown target is not allowlisted for machine-owned writes.",
+    }
+
+
+def _directory_target_identity(path: Path) -> tuple[dict[str, Any] | None, str | None]:
+    """Capture one existing directory without granting access through links."""
+    target = Path(path).expanduser()
+    if not target.is_absolute() or ".." in target.parts:
+        return None, "capacity_target_path_escape"
+    lexical = Path(os.path.abspath(str(target)))
+    try:
+        target_stat = target.lstat()
+    except FileNotFoundError:
+        return None, "capacity_target_missing"
+    except OSError:
+        return None, "capacity_target_unstatable"
+    if stat.S_ISLNK(target_stat.st_mode):
+        return None, "capacity_target_symlink"
+    if not stat.S_ISDIR(target_stat.st_mode):
+        return None, "capacity_target_not_directory"
+    try:
+        resolved = target.resolve(strict=True)
+    except OSError:
+        return None, "capacity_target_unresolvable"
+    if resolved != lexical:
+        return None, "capacity_target_symlink_ancestor"
+    return {
+        "st_dev": int(target_stat.st_dev),
+        "st_ino": int(target_stat.st_ino),
+        "st_uid": int(target_stat.st_uid),
+        "type": "directory",
+    }, None
+
+
+def user_project_capacity_match(
+    target: Path,
+    *,
+    uid: int | None = None,
+) -> dict[str, Any]:
+    """Admit accounting for one user-owned directory without write authority.
+
+    This is deliberately separate from :func:`path_protection`.  A caller may
+    already have ordinary filesystem permission to write a project directory,
+    while the host layer must still refuse to authorize project writes or
+    cleanup.  The returned identity is carried into the reservation and
+    checked again while the shared reservation lock is held.
+    """
+    requested_uid = int(os.geteuid() if uid is None else uid)
+    identity, identity_error = _directory_target_identity(target)
+    if identity is None:
+        return {
+            "class": "unknown",
+            "decision": "deny",
+            "owner": "user",
+            "matched_root": None,
+            "reason": identity_error or "capacity_target_identity_unavailable",
+            "capacity_only": True,
+            "write_permission": False,
+            "cleanup_authority": False,
+        }
+    if requested_uid <= 0:
+        reason = "capacity_user_identity_required"
+    elif int(identity["st_uid"]) != requested_uid:
+        reason = "capacity_target_owner_mismatch"
+    else:
+        try:
+            writable = os.access(target, os.W_OK | os.X_OK, effective_ids=True)
+        except TypeError:
+            writable = os.access(target, os.W_OK | os.X_OK)
+        reason = None if writable else "capacity_target_not_user_writable"
+    if reason:
+        return {
+            "class": "unknown",
+            "decision": "deny",
+            "owner": f"uid:{requested_uid}",
+            "matched_root": str(Path(target).expanduser()),
+            "reason": reason,
+            "target_identity": identity,
+            "owner_uid": requested_uid,
+            "capacity_only": True,
+            "write_permission": False,
+            "cleanup_authority": False,
+        }
+    return {
+        "class": "user_project_capacity",
+        "decision": "allow_candidate",
+        "owner": f"uid:{requested_uid}",
+        "matched_root": str(Path(target).expanduser()),
+        "reason": "user_owned_project_capacity_only",
+        "target_identity": identity,
+        "owner_uid": requested_uid,
+        "capacity_only": True,
+        "write_permission": False,
+        "cleanup_authority": False,
     }
 
 
