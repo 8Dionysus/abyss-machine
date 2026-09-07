@@ -19,7 +19,6 @@ import json
 import os
 from pathlib import Path
 import re
-import stat
 import tempfile
 from typing import Any, Callable, Mapping
 
@@ -123,12 +122,6 @@ def _route_filesystem_device(target: Path, route_metadata: Mapping[str, Any] | N
         return None
     if not route_metadata:
         return actual_device
-    if route_metadata.get("route_kind") == "owner_write":
-        # Owner routes use the exact target identity as their admission
-        # binding.  They still share the normal device bucket with every
-        # other reservation on that filesystem; they do not carry Vault's
-        # mount identity fields.
-        return actual_device if _owner_route_target_identity_ok(target, route_metadata) else None
     identity = route_metadata.get("archive_binding")
     if not isinstance(identity, Mapping):
         return None
@@ -141,54 +134,6 @@ def _route_filesystem_device(target: Path, route_metadata: Mapping[str, Any] | N
 def _route_filesystem_identity_ok(target: Path, route_metadata: Mapping[str, Any] | None) -> bool:
     """Compatibility predicate for callers that only need the guard result."""
     return _route_filesystem_device(target, route_metadata) is not None
-
-
-def _owner_route_target_identity_ok(target: Path, route_metadata: Mapping[str, Any] | None) -> bool:
-    """Recheck an explicit owner target after the reservation lock is held."""
-    if not route_metadata or route_metadata.get("route_kind") != "owner_write":
-        return True
-    expected = str(route_metadata.get("target") or "")
-    expected_identity = route_metadata.get("target_identity")
-    if (
-        not expected
-        or str(target) != expected
-        or ".." in target.parts
-        or not isinstance(expected_identity, Mapping)
-        or expected_identity.get("type") != "directory"
-    ):
-        return False
-    try:
-        lexical = Path(os.path.abspath(str(target)))
-        target_stat = target.lstat()
-        if stat.S_ISLNK(target_stat.st_mode) or not stat.S_ISDIR(target_stat.st_mode):
-            return False
-        if target.resolve(strict=True) != lexical:
-            return False
-        return (
-            int(target_stat.st_dev) == int(expected_identity.get("st_dev"))
-            and int(target_stat.st_ino) == int(expected_identity.get("st_ino"))
-        )
-    except OSError:
-        return False
-    except (TypeError, ValueError):
-        return False
-
-
-def _owner_route_policy_current(route_metadata: Mapping[str, Any] | None) -> bool:
-    """Reject an owner lease when the policy snapshot changed before admission."""
-    if not route_metadata or route_metadata.get("route_kind") != "owner_write":
-        return True
-    policy_path = str(route_metadata.get("policy_path") or "")
-    expected = str(route_metadata.get("policy_sha256") or "")
-    if not policy_path or not expected:
-        return False
-    try:
-        path = Path(policy_path)
-        if path.is_symlink() or not path.is_file():
-            return False
-        return hashlib.sha256(path.read_bytes()).hexdigest() == expected
-    except OSError:
-        return False
 
 
 def _lock(root: Path):
@@ -463,36 +408,18 @@ def acquire_reservation(
             # lock.  A mount can change while waiting for the lock; archive
             # route identity and capacity must use this same post-lock device
             # snapshot or a lease can be counted against the wrong filesystem.
-            if not _owner_route_policy_current(normalized_route_metadata):
-                return {
-                    "schema": SCHEMA,
-                    "ok": False,
-                    "decision": "blocked",
-                    "reservation_id": reservation_id,
-                    "error": "owner_route_policy_changed",
-                }
             filesystem_device = _route_filesystem_device(target, normalized_route_metadata)
             if filesystem_device is None:
-                if normalized_route_metadata and normalized_route_metadata.get("route_kind") == "owner_write":
-                    route_error = "owner_route_target_identity_mismatch"
-                elif normalized_route_metadata:
-                    route_error = "route_filesystem_identity_mismatch"
-                else:
-                    route_error = "target_filesystem_unavailable"
                 return {
                     "schema": SCHEMA,
                     "ok": False,
                     "decision": "blocked",
                     "reservation_id": reservation_id,
-                    "error": route_error,
-                }
-            if not _owner_route_target_identity_ok(target, normalized_route_metadata):
-                return {
-                    "schema": SCHEMA,
-                    "ok": False,
-                    "decision": "blocked",
-                    "reservation_id": reservation_id,
-                    "error": "owner_route_target_identity_mismatch",
+                    "error": (
+                        "route_filesystem_identity_mismatch"
+                        if normalized_route_metadata
+                        else "target_filesystem_unavailable"
+                    ),
                 }
             filesystem_key = _filesystem_key_for_device(filesystem_device)
             existing = next((item for item in records if item.get("reservation_id") == reservation_id), None)
@@ -533,24 +460,6 @@ def acquire_reservation(
                     "decision": "blocked",
                     "reservation_id": reservation_id,
                     "error": "target_filesystem_changed_during_capacity",
-                    "filesystem_key": filesystem_key,
-                }
-            if not _owner_route_target_identity_ok(target, normalized_route_metadata):
-                return {
-                    "schema": SCHEMA,
-                    "ok": False,
-                    "decision": "blocked",
-                    "reservation_id": reservation_id,
-                    "error": "owner_route_target_identity_changed_during_capacity",
-                    "filesystem_key": filesystem_key,
-                }
-            if not _owner_route_policy_current(normalized_route_metadata):
-                return {
-                    "schema": SCHEMA,
-                    "ok": False,
-                    "decision": "blocked",
-                    "reservation_id": reservation_id,
-                    "error": "owner_route_policy_changed_during_capacity",
                     "filesystem_key": filesystem_key,
                 }
             available = usage.get("available_to_user_bytes")
