@@ -239,6 +239,181 @@ def test_user_project_reservation_rechecks_identity_after_capacity_read(monkeypa
     assert result["error"] == "capacity_target_identity_changed_during_capacity"
 
 
+def test_vault_capacity_reservation_rejects_same_device_inode_or_owner_replacement(tmp_path: Path) -> None:
+    target = tmp_path / "vault" / "Backups" / "existing-output"
+    target.mkdir(parents=True)
+    identity = target.stat()
+    metadata = {
+        "route_kind": "vault_archive_capacity",
+        "target": str(target),
+        "target_identity": {
+            "st_dev": identity.st_dev,
+            "st_ino": identity.st_ino,
+            "st_uid": identity.st_uid,
+            "type": "directory",
+        },
+        "archive_binding": {
+            "st_dev": identity.st_dev,
+            "required_mount": str(tmp_path / "vault"),
+            "uuid": "runtime-fixture-uuid",
+            "mapper": "/dev/mapper/fixture",
+            "label": "FIXTURE",
+        },
+        "capacity_only": True,
+        "write_permission": False,
+        "cleanup_authority": False,
+    }
+
+    stale_binding = {
+        **metadata,
+        "archive_binding": {
+            **metadata["archive_binding"],
+            "st_dev": identity.st_dev + 1,
+        },
+    }
+    binding_result = storage_reservations.acquire_reservation(
+        tmp_path / "binding-reservations",
+        reservation_id="vault-capacity-stale-binding",
+        kind="vault-archive",
+        requested_bytes=1,
+        target=target,
+        owner="fixture-owner",
+        ttl_seconds=60,
+        route_metadata=stale_binding,
+        disk_usage=_fake_capacity,
+    )
+    assert binding_result["ok"] is False
+    assert binding_result["error"] == "capacity_target_identity_mismatch"
+    assert storage_reservations.list_reservations(tmp_path / "binding-reservations")["active_reserved_bytes"] == 0
+
+    replaced = target.with_name("existing-output-old")
+    target.rename(replaced)
+    target.mkdir()
+    assert storage_reservations._capacity_target_identity_ok(target, metadata) is False
+
+    replacement_result = storage_reservations.acquire_reservation(
+        tmp_path / "replacement-reservations",
+        reservation_id="vault-capacity-inode-replaced",
+        kind="vault-archive",
+        requested_bytes=1,
+        target=target,
+        owner="fixture-owner",
+        ttl_seconds=60,
+        route_metadata=metadata,
+        disk_usage=_fake_capacity,
+    )
+    assert replacement_result["ok"] is False
+    assert replacement_result["error"] == "capacity_target_identity_mismatch"
+    assert storage_reservations.list_reservations(tmp_path / "replacement-reservations")["active_reserved_bytes"] == 0
+
+    metadata["target_identity"] = {
+        **metadata["target_identity"],
+        "st_ino": target.stat().st_ino,
+        "st_uid": target.stat().st_uid + 1,
+    }
+    assert storage_reservations._capacity_target_identity_ok(target, metadata) is False
+
+
+def test_vault_capacity_reservation_rechecks_identity_after_capacity_read(monkeypatch, tmp_path: Path) -> None:
+    target = tmp_path / "vault" / "Backups" / "existing-output"
+    target.mkdir(parents=True)
+    identity = target.stat()
+    metadata = {
+        "route_kind": "vault_archive_capacity",
+        "target": str(target),
+        "target_identity": {
+            "st_dev": identity.st_dev,
+            "st_ino": identity.st_ino,
+            "st_uid": identity.st_uid,
+            "type": "directory",
+        },
+        "archive_binding": {"st_dev": identity.st_dev},
+        "capacity_only": True,
+        "write_permission": False,
+        "cleanup_authority": False,
+    }
+    swapped = {"done": False}
+
+    def replace_during_capacity(_path: Path, **_kwargs: object) -> dict[str, int]:
+        if not swapped["done"]:
+            swapped["done"] = True
+            target.rename(target.with_name("existing-output-old"))
+            target.mkdir()
+        return _fake_capacity(target)
+
+    result = storage_reservations.acquire_reservation(
+        tmp_path / "reservations",
+        reservation_id="vault-capacity-replaced",
+        kind="vault-archive",
+        requested_bytes=1,
+        target=target,
+        owner="fixture-owner",
+        ttl_seconds=60,
+        route_metadata=metadata,
+        disk_usage=replace_during_capacity,
+    )
+    assert result["ok"] is False
+    assert result["error"] == "capacity_target_identity_changed_during_capacity"
+
+
+def test_vault_capacity_reservation_shares_filesystem_bucket_with_other_routes(tmp_path: Path) -> None:
+    storage_root = tmp_path / "storage-reservations"
+    target = tmp_path / "vault" / "Backups" / "existing-output"
+    target.mkdir(parents=True)
+    identity = target.stat()
+    metadata = {
+        "route_kind": "vault_archive_capacity",
+        "target": str(target),
+        "target_identity": {
+            "st_dev": identity.st_dev,
+            "st_ino": identity.st_ino,
+            "st_uid": identity.st_uid,
+            "type": "directory",
+        },
+        "archive_binding": {"st_dev": identity.st_dev},
+        "capacity_only": True,
+        "write_permission": False,
+        "cleanup_authority": False,
+    }
+
+    def capacity(_path: Path, **_kwargs: object) -> dict[str, int]:
+        return {
+            "available_to_user_bytes": 1_000,
+            "free_bytes": 1_000,
+        }
+
+    first = storage_reservations.acquire_reservation(
+        storage_root,
+        reservation_id="shared-generic",
+        kind="artifact",
+        requested_bytes=100,
+        target=target,
+        owner="generic",
+        ttl_seconds=60,
+        min_free_after=100,
+        disk_usage=capacity,
+    )
+    assert first["ok"] is True
+
+    blocked = storage_reservations.acquire_reservation(
+        storage_root,
+        reservation_id="shared-vault-capacity",
+        kind="vault-archive",
+        requested_bytes=850,
+        target=target,
+        owner="fixture-owner",
+        ttl_seconds=60,
+        min_free_after=100,
+        route_metadata=metadata,
+        disk_usage=capacity,
+    )
+    assert blocked["ok"] is False
+    assert blocked["error"] == "available_capacity_after_reservations_below_policy"
+    listing = storage_reservations.list_reservations(storage_root)
+    assert listing["active_reserved_bytes"] == 100
+    assert listing["active"][0]["filesystem_key"] == f"dev:{identity.st_dev}"
+
+
 def test_allowed_srv_write_remains_green_when_root_pressure_is_a_finding(monkeypatch, tmp_path: Path) -> None:
     target = tmp_path / "abyss-machine" / "validation"
     monkeypatch.setattr(

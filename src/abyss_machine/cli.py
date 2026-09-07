@@ -9502,6 +9502,110 @@ def _archive_vault_policy_value(vault: Mapping[str, Any], route: Mapping[str, An
     return value or None
 
 
+def _archive_vault_capacity_policy(vault: Mapping[str, Any]) -> dict[str, Any]:
+    """Resolve the global Vault identity used by capacity-only admission."""
+    required_mount = Path(str(vault.get("mount") or "").strip()).expanduser()
+    backup_root = Path(str(vault.get("backup_root") or "").strip()).expanduser()
+    expected_label = str(vault.get("device_label") or "").strip()
+    expected_mapper = str(vault.get("luks_mapper") or "").strip()
+    if (
+        not required_mount.is_absolute()
+        or not backup_root.is_absolute()
+        or required_mount == Path("/")
+        or ".." in required_mount.parts
+        or ".." in backup_root.parts
+        or not expected_label
+        or not expected_mapper
+    ):
+        return {"ok": False, "reason": "archive_vault_policy_identity_invalid"}
+    try:
+        backup_root.relative_to(required_mount)
+    except ValueError:
+        return {"ok": False, "reason": "archive_backup_root_outside_required_mount"}
+    return {
+        "ok": True,
+        "required_mount": required_mount,
+        "backup_root": backup_root,
+        "expected_label": expected_label,
+        "expected_mapper": expected_mapper,
+    }
+
+
+def storage_vault_capacity_path_protection(
+    path: Path,
+    *,
+    archive_policy: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Admit capacity for an existing user-owned directory on the Vault.
+
+    This route accounts bytes only.  Explicit archive routes continue to own
+    source/destination write authority and file-copy admission.
+    """
+    vault = archive_policy.get("vault") if isinstance(archive_policy.get("vault"), Mapping) else {}
+    resolved = _archive_vault_capacity_policy(vault)
+    if resolved.get("ok") is not True:
+        return {
+            "class": "unknown",
+            "decision": "deny",
+            "owner": "unknown",
+            "matched_root": None,
+            "reason": resolved.get("reason") or "archive_vault_policy_identity_invalid",
+            "capacity_only": True,
+            "write_permission": False,
+            "cleanup_authority": False,
+        }
+    target = Path(path).expanduser()
+    capacity = storage_contracts.vault_archive_capacity_match(
+        target,
+        resolved["backup_root"],
+    )
+    if capacity.get("decision") != "allow_candidate":
+        return capacity
+    binding = storage_lifecycle_adapters.archive_vault_mount_binding(
+        target,
+        resolved["required_mount"],
+        expected_mapper=resolved["expected_mapper"],
+        expected_label=resolved["expected_label"],
+    )
+    if binding.get("ok") is not True:
+        return {
+            **capacity,
+            "class": "unknown",
+            "decision": "deny",
+            "reason": "archive_vault_identity_invalid",
+            "archive_binding_reasons": list(binding.get("reasons", [])),
+        }
+    identity = binding.get("identity")
+    target_identity = capacity.get("target_identity")
+    identity_device = identity.get("st_dev") if isinstance(identity, Mapping) else None
+    target_device = target_identity.get("st_dev") if isinstance(target_identity, Mapping) else None
+    if (
+        not isinstance(identity, Mapping)
+        or not isinstance(target_identity, Mapping)
+        or isinstance(identity_device, bool)
+        or not isinstance(identity_device, int)
+        or isinstance(target_device, bool)
+        or not isinstance(target_device, int)
+        or identity_device != target_device
+        or not str(identity.get("uuid") or "").strip()
+        or not str(identity.get("mapper") or "").strip()
+        or not str(identity.get("label") or "").strip()
+    ):
+        return {
+            **capacity,
+            "class": "unknown",
+            "decision": "deny",
+            "reason": "archive_vault_identity_invalid",
+            "archive_binding_reasons": ["archive_target_device_identity_mismatch"],
+        }
+    return {
+        **capacity,
+        "archive_binding": dict(identity),
+        "required_mount": str(resolved["required_mount"]),
+        "device": binding.get("device"),
+    }
+
+
 def storage_write_path_protection(kind: str, path: Path, *, owner: str | None = None) -> dict[str, Any]:
     """Classify a write target without widening generic path protection."""
     if kind != storage_contracts.VAULT_ARCHIVE_KIND:
@@ -9570,7 +9674,16 @@ def storage_capacity_path_protection(
     """Classify a reservation target without granting project write authority."""
     protection = storage_write_path_protection(kind, path, owner=owner)
     if kind == storage_contracts.VAULT_ARCHIVE_KIND:
-        return protection
+        if protection.get("decision") == "allow_candidate":
+            return protection
+        archive_policy = storage_archive_policy()
+        capacity = storage_vault_capacity_path_protection(
+            path,
+            archive_policy=archive_policy,
+        )
+        if capacity.get("decision") == "allow_candidate":
+            return {**capacity, "write_protection": protection}
+        return {**protection, "capacity_admission": capacity}
     if protection.get("decision") == "allow_candidate":
         return protection
     project = storage_contracts.user_project_capacity_match(path)
@@ -9587,7 +9700,10 @@ def storage_capacity_admission(
     min_free_after: int,
 ) -> dict[str, Any] | None:
     """Report capacity-only eligibility for an already user-owned target."""
-    if protection.get("class") != "user_project_capacity":
+    if protection.get("class") not in {
+        "user_project_capacity",
+        "vault_archive_capacity",
+    }:
         return None
     if reservations.get("ok") is False:
         return {
@@ -9619,10 +9735,15 @@ def storage_capacity_admission(
             "write_permission": False,
             "cleanup_authority": False,
         }
+    reason = (
+        "existing_vault_output_capacity_only"
+        if protection.get("class") == "vault_archive_capacity"
+        else "user_owned_project_capacity_only"
+    )
     return {
         "ok": True,
         "decision": "allow",
-        "reason": "user_owned_project_capacity_only",
+        "reason": reason,
         "available_before_bytes": int(available),
         "available_after_bytes": available_after,
         "capacity_only": True,
@@ -15430,7 +15551,7 @@ def storage_reservation_acquire(
     target_path = Path(target).expanduser()
     protection = storage_capacity_path_protection(kind, target_path, owner=owner)
     allowed_classes = (
-        {"vault_archive_allowed"}
+        {"vault_archive_allowed", "vault_archive_capacity"}
         if kind == storage_contracts.VAULT_ARCHIVE_KIND
         else {"host_owned_allowed", "user_project_capacity"}
     )
@@ -15445,12 +15566,25 @@ def storage_reservation_acquire(
         }
     route_metadata = None
     if kind == storage_contracts.VAULT_ARCHIVE_KIND:
-        route_metadata = {
-            "route_id": protection.get("route_id"),
-            "owner": protection.get("owner"),
-            "required_mount": protection.get("required_mount"),
-            "archive_binding": protection.get("archive_binding"),
-        }
+        if protection.get("class") == "vault_archive_capacity":
+            route_metadata = {
+                "route_kind": "vault_archive_capacity",
+                "target": str(target_path),
+                "target_identity": protection.get("target_identity"),
+                "owner_uid": protection.get("owner_uid"),
+                "required_mount": protection.get("required_mount"),
+                "archive_binding": protection.get("archive_binding"),
+                "capacity_only": True,
+                "write_permission": False,
+                "cleanup_authority": False,
+            }
+        else:
+            route_metadata = {
+                "route_id": protection.get("route_id"),
+                "owner": protection.get("owner"),
+                "required_mount": protection.get("required_mount"),
+                "archive_binding": protection.get("archive_binding"),
+            }
     elif protection.get("class") == "user_project_capacity":
         route_metadata = {
             "route_kind": "user_project_capacity",
@@ -15646,8 +15780,10 @@ def storage_write_preflight(
     )
     decision = "allow" if capacity_only_allowed else strict_decision
     reasons = (
-        ["user_owned_project_capacity_only", *strict_reasons]
-        if capacity_only_allowed
+        [
+            str(capacity_admission.get("reason") or "capacity_only"),
+        ]
+        if capacity_only_allowed and isinstance(capacity_admission, Mapping)
         else strict_reasons
     )
     data = {

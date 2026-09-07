@@ -112,7 +112,11 @@ def _target_filesystem_device(target: Path) -> int | None:
 
 def _capacity_target_identity_ok(target: Path, route_metadata: Mapping[str, Any] | None) -> bool:
     """Recheck a user-project target without turning accounting into access."""
-    if not route_metadata or route_metadata.get("route_kind") != "user_project_capacity":
+    route_kind = route_metadata.get("route_kind") if route_metadata else None
+    if route_kind not in {
+        "user_project_capacity",
+        "vault_archive_capacity",
+    }:
         return True
     expected = str(route_metadata.get("target") or "")
     expected_identity = route_metadata.get("target_identity")
@@ -132,11 +136,23 @@ def _capacity_target_identity_ok(target: Path, route_metadata: Mapping[str, Any]
             return False
         if target.resolve(strict=True) != lexical:
             return False
-        return (
+        target_matches = (
             int(target_stat.st_dev) == int(expected_identity.get("st_dev"))
             and int(target_stat.st_ino) == int(expected_identity.get("st_ino"))
             and int(target_stat.st_uid) == int(expected_identity.get("st_uid"))
         )
+        if not target_matches:
+            return False
+        if route_kind == "vault_archive_capacity":
+            archive_identity = route_metadata.get("archive_binding")
+            if not isinstance(archive_identity, Mapping):
+                return False
+            expected_device = archive_identity.get("st_dev")
+            if isinstance(expected_device, bool) or not isinstance(expected_device, int):
+                return False
+            if int(target_stat.st_dev) != expected_device:
+                return False
+        return True
     except OSError:
         return False
     except (TypeError, ValueError):
@@ -156,8 +172,13 @@ def _route_filesystem_device(target: Path, route_metadata: Mapping[str, Any] | N
         return None
     if not route_metadata:
         return actual_device
-    if route_metadata.get("route_kind") == "user_project_capacity":
-        return actual_device if _capacity_target_identity_ok(target, route_metadata) else None
+    if route_metadata.get("route_kind") in {
+        "user_project_capacity",
+        "vault_archive_capacity",
+    }:
+        if not _capacity_target_identity_ok(target, route_metadata):
+            return None
+        return actual_device
     identity = route_metadata.get("archive_binding")
     if not isinstance(identity, Mapping):
         return None
@@ -446,7 +467,10 @@ def acquire_reservation(
             # snapshot or a lease can be counted against the wrong filesystem.
             filesystem_device = _route_filesystem_device(target, normalized_route_metadata)
             if filesystem_device is None:
-                if normalized_route_metadata and normalized_route_metadata.get("route_kind") == "user_project_capacity":
+                if normalized_route_metadata and normalized_route_metadata.get("route_kind") in {
+                    "user_project_capacity",
+                    "vault_archive_capacity",
+                }:
                     route_error = "capacity_target_identity_mismatch"
                 elif normalized_route_metadata:
                     route_error = "route_filesystem_identity_mismatch"

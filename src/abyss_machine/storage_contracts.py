@@ -723,6 +723,69 @@ def user_project_capacity_match(
     }
 
 
+def vault_archive_capacity_match(
+    target: Path,
+    archive_root: Path,
+    *,
+    uid: int | None = None,
+) -> dict[str, Any]:
+    """Admit accounting for an existing user-owned directory on the Vault.
+
+    This is a capacity admission beside the explicit archive-route contract.
+    It intentionally does not authorize a source/destination copy: callers
+    still need the route-owned write admission for that operation.  The root
+    comes from the host Vault policy, and only an existing directory beneath it
+    may be admitted.
+    """
+    candidate = Path(target).expanduser()
+    root = Path(archive_root).expanduser()
+    if (
+        not candidate.is_absolute()
+        or not root.is_absolute()
+        or ".." in candidate.parts
+        or ".." in root.parts
+    ):
+        return {
+            "class": "unknown",
+            "decision": "deny",
+            "owner": "user",
+            "matched_root": str(root),
+            "reason": "capacity_target_outside_vault_root",
+            "capacity_only": True,
+            "write_permission": False,
+            "cleanup_authority": False,
+        }
+    lexical_candidate = Path(os.path.abspath(str(candidate)))
+    lexical_root = Path(os.path.abspath(str(root)))
+    try:
+        lexical_candidate.relative_to(lexical_root)
+    except ValueError:
+        return {
+            "class": "unknown",
+            "decision": "deny",
+            "owner": "user",
+            "matched_root": str(lexical_root),
+            "reason": "capacity_target_outside_vault_root",
+            "capacity_only": True,
+            "write_permission": False,
+            "cleanup_authority": False,
+        }
+    capacity = user_project_capacity_match(candidate, uid=uid)
+    if capacity.get("decision") != "allow_candidate":
+        return {
+            **capacity,
+            "matched_root": str(lexical_root),
+            "capacity_root": str(lexical_root),
+        }
+    return {
+        **capacity,
+        "class": "vault_archive_capacity",
+        "matched_root": str(lexical_root),
+        "capacity_root": str(lexical_root),
+        "reason": "existing_vault_output_capacity_only",
+    }
+
+
 def _safe_absolute_path(value: Any) -> Path | None:
     candidate = Path(str(value or ""))
     if not candidate.is_absolute() or ".." in candidate.parts:
