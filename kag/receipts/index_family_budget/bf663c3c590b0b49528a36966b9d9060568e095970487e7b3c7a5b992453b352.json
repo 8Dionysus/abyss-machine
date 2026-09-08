@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 9528914,
+  "allowed_tracked_bytes": 30393580,
+  "approved_by": "repository-owner",
+  "base_ref": "25df057a5c6d195ba867ac73a34b11c06fd136ad",
+  "changed_generated_bytes": 9528914,
+  "changed_generated_files": 107,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "bf663c3c590b0b49528a36966b9d9060568e095970487e7b3c7a5b992453b352",
+  "reason": "Owner-approved exact CI-pinned KAG regeneration after Repo Validation identified generated-family drift; the managed skill install-route source change requires deterministic ABI and portable companions without changing standing budgets.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 30393580,
+  "tracked_bytes_max": 27262976
+}

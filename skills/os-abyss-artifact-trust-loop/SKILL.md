@@ -1,6 +1,6 @@
 ---
 name: os-abyss-artifact-trust-loop
-description: "Route one OS Abyss artifact through owner controls, evidence/drift review, registry selection, and fail-closed consumer admission. Use before producing or consuming a concrete bundle, package, container, model/runtime, generated export, extension, or media artifact, or when provenance, SBOM/signature, source-ref, registry, or trust-gate evidence is stale or missing. Do not use for ordinary source edits/tests, generic supply-chain explanations, raw sessions, or source-authority disputes."
+description: "Route an OS Abyss release, runtime/model artifact, portable export, or other policy-governed artifact through evidence review and exact consumer admission. Use for signatures, provenance, registry, or trust-gate decisions. Ordinary source work and authorized local skill copies through the owner-managed profile use their own source/install checks."
 ---
 
 # OS Abyss Artifact Trust Loop
@@ -27,6 +27,19 @@ Return `not_applicable` before resolving the owner for an ordinary code change,
 test, Git operation, generic security explanation, raw `.aoa` session lookup,
 or authority-map question that does not cross an artifact boundary.
 
+An authorized `os-user-default` managed-copy update from a reviewed, clean
+local owner skill home is a source projection, not a portable release. When
+the owner installer checks profile membership, exact source identity, package
+bytes, and source-return receipts, return `not_applicable` and continue through
+that installer. Do not invent a release artifact or registry requirement merely
+because the source directory is called a bundle. See the owner boundary in
+[references/trust-loop.md](references/trust-loop.md#local-source-skill-projections).
+
+This distinction does not admit downloaded archives, opaque binaries,
+unresolved origins, portable exports, or policy-governed runtime/release
+artifacts. Those still need their applicable artifact route, even on a local
+machine. An actual unknown artifact remains unknown.
+
 If the request mentions a possible artifact but supplies neither a concrete
 artifact/class nor enough context to classify it, select `inspect` and preserve
 the class as `unknown`; do not silently choose the nearest class.
@@ -41,14 +54,14 @@ Use the skill directory reported by the host as the initial bundle root.
 3. Require `schema_version` to be `aoa_skill_source_receipt_v1` or
    `aoa_skill_source_receipt_v2`,
    `name=os-abyss-artifact-trust-loop`, `owner_repo=abyss-machine`,
-   `source_path=skills/os-abyss-artifact-trust-loop`, and `version=0.1.2`.
+   `source_path=skills/os-abyss-artifact-trust-loop`, and a non-empty `version`.
    For v2 also require non-empty `digest`, `source_fingerprint`,
    `source_fingerprint_scope`, and `prompt_description_sha256`. When
    `capability_graph_hash` is present, require it to be a non-empty string and
    preserve it.
 4. Follow the exact `owner_root` and `source_path` from the receipt. Require
-   the owner contract to repeat the same identity, version, and admitted
-   lifecycle.
+   the owner contract and `skills/port.manifest.json` entry to repeat the same
+   identity, declared version, and admitted lifecycle.
 5. Stop as `blocked_owner_source` when the receipt or canonical package is
    missing, ambiguous, or version-stale. Do not search sibling repositories
    for a plausible copy.
