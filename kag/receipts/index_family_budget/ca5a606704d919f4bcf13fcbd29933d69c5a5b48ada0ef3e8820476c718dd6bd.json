@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 5310412,
+  "allowed_tracked_bytes": 30387143,
+  "approved_by": "repository-owner",
+  "base_ref": "25df057a5c6d195ba867ac73a34b11c06fd136ad",
+  "changed_generated_bytes": 5310412,
+  "changed_generated_files": 58,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "ca5a606704d919f4bcf13fcbd29933d69c5a5b48ada0ef3e8820476c718dd6bd",
+  "reason": "Owner-reviewed first-wave helper cleanup changes source identity; regenerate the deterministic portable family for the exact pull-request base without increasing standing budgets.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 30387143,
+  "tracked_bytes_max": 27262976
+}
