@@ -15,6 +15,28 @@ Record the smallest useful identity:
 Do not broaden a question about one artifact into whole-OS coverage. Do not
 turn an audit into production or promotion.
 
+## Local source skill projections
+
+The `aoa-skills` producer profile in
+`manifests/artifact_signature_policy.manifest.json` selects
+`aoa_skills_release_manifest` when a skill release manifest or portable export
+handoff is generated. That class describes the generated portable release
+contract; it is not every directory named a skill bundle.
+
+`aoa-skills` separately owns the `os-user-default` managed-copy profile, its
+owner-home admission, clean source binding, installed byte parity, and
+source-return receipts. Its authored `mechanics/release-support/docs/INSTALL_AND_PROFILES.md`
+and `scripts/install_os_skill_profile.py` define that route. For an authorized
+local copy from the reviewed source home, use that owner route and stop this
+artifact procedure as `not_applicable`. Failed installer checks remain failed;
+this classification neither grants permission nor overrides them.
+
+Do not classify an unknown downloaded package as a source projection to avoid
+its gate. A release archive, opaque executable, runtime/model, portable export,
+or explicitly policy-governed subject retains its exact evidence and admission
+requirements. Local provenance is not public-release trust. No registry or
+`trust-gate allow` claim is made for the source-copy operation.
+
 ## Resolve the owner route without loading the whole trust plane
 
 Use the owner read models as the compact index. Do not start by loading the

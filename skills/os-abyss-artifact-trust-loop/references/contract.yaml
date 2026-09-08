@@ -4,7 +4,7 @@ identity:
   name: os-abyss-artifact-trust-loop
   owner: abyss-machine
   canonical_source: skills/os-abyss-artifact-trust-loop
-  version: 0.1.2
+  version: 0.1.3
   lifecycle: admitted
   health: active
 
@@ -16,6 +16,7 @@ applicability:
     - A bundle, package, container, model/runtime, generated read model, portable export, browser extension, update target, or public media artifact may be produced or consumed.
   do_not_use_when:
     - The task is an ordinary source edit, test, Git operation, generic supply-chain explanation, raw session retrieval, or source-authority dispute with no artifact boundary.
+    - An authorized os-user-default managed-copy update projects a reviewed clean local owner skill home through the aoa-skills installer, without consuming a portable release or another policy-governed artifact.
 
 authority:
   policy_registry_and_gate: abyss-machine
@@ -116,6 +117,8 @@ health:
     - material Codex host or model change
     - global catalog or source-return change
   manual_cases:
+    - local owner skill source projection returns to the managed installer without a release gate claim
+    - a downloaded archive or unresolved skill origin does not inherit the source-projection exclusion
     - natural pre-consumption selection
     - authorized owner production path
     - positive local agent admission
