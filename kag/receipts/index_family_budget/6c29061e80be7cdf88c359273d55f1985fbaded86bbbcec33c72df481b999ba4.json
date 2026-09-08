@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 9401956,
+  "allowed_tracked_bytes": 30393263,
+  "approved_by": "repository-owner",
+  "base_ref": "25df057a5c6d195ba867ac73a34b11c06fd136ad",
+  "changed_generated_bytes": 9401956,
+  "changed_generated_files": 106,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "6c29061e80be7cdf88c359273d55f1985fbaded86bbbcec33c72df481b999ba4",
+  "reason": "Owner-approved source skill boundary refresh requires deterministic ABI and portable KAG companions; the generated delta and tracked-size exceedance are captured by this digest-bound receipt without changing standing budgets.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 30393263,
+  "tracked_bytes_max": 27262976
+}
