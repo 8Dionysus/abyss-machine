@@ -9786,12 +9786,6 @@ def write_bundle_registry_record(
     }
 
 
-def _string_list(value: Any) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    return [str(item) for item in value if str(item)]
-
-
 def _manifest_for_registry_record(record: dict[str, Any], *, repo_root: Path) -> dict[str, Any]:
     manifest_ref = str(record.get("bundle_manifest_ref") or "")
     if not manifest_ref:

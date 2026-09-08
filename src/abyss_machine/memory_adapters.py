@@ -115,13 +115,6 @@ def _stable_hash_json(payload: Any, length: int = 24) -> str:
     return hashlib.sha256(raw.encode("utf-8", errors="replace")).hexdigest()[: max(8, min(int(length), 64))]
 
 
-def _kib_to_mib(value: Any) -> float | None:
-    parsed = _safe_int(value, -1)
-    if parsed < 0:
-        return None
-    return round(parsed / 1024.0, 1)
-
-
 def hotpath_residency_brief(data: dict[str, Any]) -> dict[str, Any]:
     summary = data.get("summary", {}) if isinstance(data.get("summary"), dict) else {}
     services: dict[str, Any] = {}
