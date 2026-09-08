@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 5622251,
+  "allowed_tracked_bytes": 30393041,
+  "approved_by": "repository-owner",
+  "base_ref": "f11c573c329597c3d80785c4665aaf07b37248fd",
+  "changed_generated_bytes": 5622251,
+  "changed_generated_files": 59,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "c5098095704f607699c0dd288b49fb5fc1c308ae92dc814987bd56f711724e33",
+  "reason": "Regenerate the owner portable KAG family after integrating origin/main PR #418 with the shadowed-helper cleanup; the generated delta is the deterministic combined source projection and exceeds the one-megabyte change budget.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 30393041,
+  "tracked_bytes_max": 27262976
+}
