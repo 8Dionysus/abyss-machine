@@ -64,6 +64,15 @@ the deterministic archive test, and the owner trust/admission route. Before a
 durable install, run storage write-preflight and changes preflight. Execute the
 fixed continuation validators last.
 
+Storage observation `ok=true` and exit status zero are not write permission:
+`reroute`, `cleanup_first` and capacity-only results may have both. The shared
+installer adapter requires explicit `allow` for the requested target, strict
+write allow, `write_permission=true` and `capacity_only=false`. Unknown,
+timed-out or truncated owner output fails closed. Changes-preflight warnings
+remain visible and may proceed only under that owner's explicit non-blocking
+warning policy. A capacity lease still accounts for bytes without granting
+permission, and a change record/rollback route remains a separate obligation.
+
 For the authenticated runtime boundary, provision the private machine key and
 matching root-owned public anchor through an operator-owned route, then run:
 

@@ -635,14 +635,47 @@ def _installed_identity(runtime_root: Path) -> dict[str, Any]:
 
 
 def _preflight_summary(document: Mapping[str, Any], *, command: str, returncode: int | None) -> dict[str, Any]:
+    decision = document.get("decision")
+    policy = document.get("policy")
+    policy = policy if isinstance(policy, Mapping) else {}
+    if command == "storage-write-preflight":
+        permitted = (
+            decision == "allow"
+            and document.get("strict_write_decision") == "allow"
+            and document.get("write_permission") is True
+            and document.get("capacity_only") is False
+        )
+    elif command == "changes-preflight":
+        permitted = decision == "allow" or (
+            decision == "warn" and policy.get("warnings_do_not_block") is True
+        )
+    else:
+        permitted = False
+    checks = document.get("checks")
+    checks = checks if isinstance(checks, list) else []
+    summary = document.get("summary")
+    summary = summary if isinstance(summary, Mapping) else {}
+    warnings = [str(item) for item in document.get("warnings", []) if str(item)]
+    warnings.extend(
+        f"{check.get('key', '')}: {check.get('message', '')}"[:512]
+        for check in checks
+        if isinstance(check, Mapping) and check.get("level") == "warn"
+    )
+    blockers = [str(item) for item in document.get("blockers", []) if str(item)]
+    if not permitted:
+        blockers.insert(0, "explicit_owner_write_permission_not_granted")
     return {
         "command": command,
         "returncode": returncode,
-        "ok": document.get("ok") is True and returncode == 0,
-        "status": document.get("status"),
-        "blockers": [str(item) for item in document.get("blockers", []) if str(item)][:16],
+        "ok": document.get("ok") is True and returncode == 0 and permitted,
+        "decision": decision,
+        "strict_write_decision": document.get("strict_write_decision"),
+        "write_permission": document.get("write_permission"),
+        "capacity_only": document.get("capacity_only"),
+        "status": document.get("status", summary.get("status")),
+        "blockers": blockers[:16],
         "errors": [str(item) for item in document.get("errors", []) if str(item)][:16],
-        "warnings": [str(item) for item in document.get("warnings", []) if str(item)][:16],
+        "warnings": warnings[:16],
     }
 
 
@@ -689,7 +722,11 @@ def run_owner_preflights(*, archive_bytes: int, runtime_root: Path, provider_lab
             document = {}
         if not isinstance(document, dict):
             document = {}
-        summaries.append(_preflight_summary(document, command=label, returncode=result.get("returncode")))
+        summary = _preflight_summary(document, command=label, returncode=result.get("returncode"))
+        if result.get("timed_out") or result.get("output_truncated"):
+            summary["ok"] = False
+            summary["blockers"].insert(0, "owner_preflight_output_incomplete")
+        summaries.append(summary)
     return {"ok": all(item.get("ok") is True for item in summaries), "preflights": summaries}
 
 

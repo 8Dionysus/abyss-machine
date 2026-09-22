@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Require explicit storage write permission in provider installers; do not
+  consume a successful reroute, cleanup-first or capacity-only observation as
+  admission. Preserve native change-preflight decisions and warnings.
 - Add an explicit, non-executing SCIP Python installer with current-policy
   admission, exact producer/installer source identities, expanded-write
   preflight, atomic no-replacement placement and full installed-byte/link
