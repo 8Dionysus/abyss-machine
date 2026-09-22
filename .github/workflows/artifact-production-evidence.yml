@@ -160,10 +160,12 @@ jobs:
           mkdir -p "${artifact_root}"
           python_prefix="$(mktemp -d "${RUNNER_TEMP}/scip-python.XXXXXX")"
           repeat_root="$(mktemp -d "${RUNNER_TEMP}/scip-python-repeat.XXXXXX")"
+          touch "${repeat_root}/user.npmrc" "${repeat_root}/global.npmrc"
           cp mechanics/code-intelligence/parts/scip-python/package.json \
             mechanics/code-intelligence/parts/scip-python/package-lock.json "${python_prefix}/"
           npm ci --prefix "${python_prefix}" --ignore-scripts --no-audit --no-fund \
-            --userconfig /dev/null --globalconfig /dev/null --cache "${RUNNER_TEMP}/npm-cache"
+            --userconfig "${repeat_root}/user.npmrc" --globalconfig "${repeat_root}/global.npmrc" \
+            --cache "${RUNNER_TEMP}/npm-cache"
           python_artifact="${artifact_root}/abyss-machine-code-intelligence-python-provider-${GITHUB_SHA}.tar.gz"
           python scripts/code_intelligence_python_provider.py build \
             --runtime "${python_prefix}" --output "${python_artifact}" \

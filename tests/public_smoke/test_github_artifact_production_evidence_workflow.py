@@ -162,8 +162,13 @@ def test_python_production_step_fails_closed_before_signing(
         assert not (workspace / "dist").exists()
         return
     ci = next(row for row in invoked if row[:2] == ["npm", "ci"])
-    for option in ("--userconfig", "--globalconfig"):
-        assert ci[ci.index(option) + 1] == "/dev/null"
+    configs = [
+        Path(ci[ci.index(option) + 1]) for option in ("--userconfig", "--globalconfig")
+    ]
+    assert configs[0] != configs[1]  # npm rejects double-loading one config path.
+    assert all(
+        path.is_relative_to(runner) and path.read_bytes() == b"" for path in configs
+    )
     assert ci[ci.index("--cache") + 1] == str(runner / "npm-cache")
     prefix = Path(ci[ci.index("--prefix") + 1])
     inputs = ROOT / "mechanics/code-intelligence/parts/scip-python"
