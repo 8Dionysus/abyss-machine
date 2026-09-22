@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 12206115,
+  "allowed_tracked_bytes": 30554445,
+  "approved_by": "repository-owner",
+  "base_ref": "7c870ddbf370e4426c87ab5d72d39f38e2f4b2ef",
+  "changed_generated_bytes": 12206115,
+  "changed_generated_files": 134,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "8732ecdb1105f551a55040f120556ab807008e9be475a128491d937f7e8b0736",
+  "reason": "Bounded source-bound refresh for the signed SCIP Python producer, exact Node/npm pin and explicit existing provider private-data exclusion; base family already 30529481 bytes above the unchanged tracked-size cap. No index budget or trust control is weakened.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 30554445,
+  "tracked_bytes_max": 27262976
+}
