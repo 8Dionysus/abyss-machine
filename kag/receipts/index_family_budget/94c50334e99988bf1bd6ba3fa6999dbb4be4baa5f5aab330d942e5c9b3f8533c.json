@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 7523412,
+  "allowed_tracked_bytes": 30522901,
+  "approved_by": "repository-owner",
+  "base_ref": "87e4e94ea14eda9a426c0cfe9cb3578b3d9fbe48",
+  "changed_generated_bytes": 7523412,
+  "changed_generated_files": 84,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "94c50334e99988bf1bd6ba3fa6999dbb4be4baa5f5aab330d942e5c9b3f8533c",
+  "reason": "Exact additive SCIP Python candidate source 662e9e432: 14 authored and ABI paths, with existing MACHINE owner boundaries and trust controls unchanged. Baseline portable family is already 30395018 bytes above the unchanged 27262976 byte threshold; the measured candidate adds only 127883 bytes to 30522901. Whole-shard changed bytes are 7523412, not net growth. This bounded receipt covers only regenerated MACHINE source anchors and complete tool-lock inputs for this candidate; it grants no runtime admission, semantic proof, or future budget exemption.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 30522901,
+  "tracked_bytes_max": 27262976
+}

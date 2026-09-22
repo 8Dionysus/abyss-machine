@@ -7,3 +7,7 @@
 - `scripts/install_code_intelligence_provider.py`
 - `manifests/artifact_bundles/code_intelligence_provider.bundle.json`
 - `config-templates/etc/abyss-machine/code-intelligence.json`
+- `src/abyss_machine/code_intelligence_python_provider.py`
+- `scripts/code_intelligence_python_provider.py`
+- `manifests/code_intelligence_python_provider.lock.json`
+- `mechanics/code-intelligence/parts/scip-python/`

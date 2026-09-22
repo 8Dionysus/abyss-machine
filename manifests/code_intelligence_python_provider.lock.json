@@ -1,0 +1,38 @@
+{
+  "schema": "abyss_machine_code_intelligence_python_provider_lock_v1",
+  "version": "1.0.0",
+  "owner": "abyss-machine",
+  "provider_id": "scip-python",
+  "capability": "scip",
+  "language": "python",
+  "distribution": {
+    "name": "@sourcegraph/scip-python",
+    "version": "0.6.6",
+    "integrity": "sha512-qoKL1Rggg0o5newAFbCFAKlS0AjWxG5MA+mC28BtgxOv0DhO4zdL8u7151FxEppDpXMVvm7+yXSjXotoVH9cMQ==",
+    "source_repo": "https://github.com/sourcegraph/scip-python",
+    "source_commit": "8b60bbce1f2a4c7a517776cb395bbafb2e731e4f",
+    "entrypoint": "node_modules/@sourcegraph/scip-python/index.js"
+  },
+  "package_manifest_ref": "mechanics/code-intelligence/parts/scip-python/package.json",
+  "package_lock_ref": "mechanics/code-intelligence/parts/scip-python/package-lock.json",
+  "build": {
+    "package_lock_version": 3,
+    "install_scripts": "disabled",
+    "npm_version": "10.9.8",
+    "node_minimum": "22.22.2"
+  },
+  "consumer": {
+    "index_format": "scip-protobuf-stream",
+    "position_encoding": "utf-16",
+    "position_encoding_basis": "pinned-source-inference-requires-runtime-canary",
+    "python_minimum": "3.10",
+    "project_environment": "explicit-stack-owned-snapshot",
+    "implicit_pip_discovery": "forbidden"
+  },
+  "claim_limits": [
+    "Distribution metadata and a complete npm lock are build inputs, not verified package bytes or consumer admission.",
+    "A prepared prefix is packaged without executing provider code; its build provenance is verified separately.",
+    "The analyzed project's source, resolver dependencies and Python interpreter are separate STACK-owned inputs.",
+    "The inferred coordinate ABI requires an admitted Unicode and CRLF runtime canary before semantic use."
+  ]
+}

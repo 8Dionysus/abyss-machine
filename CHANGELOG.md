@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add an isolated SCIP Python candidate builder and exact-bundle inspector,
+  with a complete npm dependency lock, bounded deterministic archives and
+  fail-closed runtime admission. Keep tool dependencies separate from the
+  STACK-owned project resolver snapshot; do not execute or install the
+  candidate, change the TypeScript realization or claim semantic proof.
 - Bind storage reservations to actual resource executions, preserving holds
   until terminal completion and exposing unavailable accounting separately
   from capacity pressure.

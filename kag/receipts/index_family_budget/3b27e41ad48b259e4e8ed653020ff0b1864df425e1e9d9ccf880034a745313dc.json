@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 7869434,
+  "allowed_tracked_bytes": 30527956,
+  "approved_by": "repository-owner",
+  "base_ref": "87e4e94ea14eda9a426c0cfe9cb3578b3d9fbe48",
+  "changed_generated_bytes": 7869434,
+  "changed_generated_files": 87,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "3b27e41ad48b259e4e8ed653020ff0b1864df425e1e9d9ccf880034a745313dc",
+  "reason": "Final JSON-bounded additive SCIP Python candidate: the same 14 authored and ABI paths, with explicit distribution identity and no change to owner boundaries, TypeScript execution or required trust controls. Prior exact review established the base family already exceeds the unchanged tracked-byte threshold; its candidate net growth was only 127883 bytes despite whole-shard delta accounting. This replacement digest-bound receipt covers only this final MACHINE source snapshot and parser-bound regression changes, not a future budget exemption, artifact admission or semantic proof.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 30527956,
+  "tracked_bytes_max": 27262976
+}
