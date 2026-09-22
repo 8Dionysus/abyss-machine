@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 10291585,
+  "allowed_tracked_bytes": 30681202,
+  "approved_by": "repository-owner",
+  "base_ref": "bace434772c78c0336e6d4c05b3b3974df3c0d42",
+  "changed_generated_bytes": 10291585,
+  "changed_generated_files": 110,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "eaa81264e9d90b8fcd0fb4f9affb5f4e3816ca4aa01a9790f8d28ae96a1e9c94",
+  "reason": "Reviewed exact Node release/executable/license binding in Python v2 archive, installer identity, production workflow and fail-closed tests; no trust-policy weakening",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 30681202,
+  "tracked_bytes_max": 27262976
+}
