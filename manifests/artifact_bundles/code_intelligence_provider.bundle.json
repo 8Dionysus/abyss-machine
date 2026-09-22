@@ -32,6 +32,11 @@
       "glob": "abyss-machine-code-intelligence-adjacent-providers-*.tar.gz",
       "role": "adjacent_provider_archive",
       "optional": false
+    },
+    {
+      "glob": "abyss-machine-code-intelligence-python-provider-*.tar.gz",
+      "role": "scip_python_provider_archive",
+      "optional": true
     }
   ],
   "build_type": "urn:abyssos:buildtype:abyss-machine-code-intelligence-provider:v1",
@@ -69,6 +74,7 @@
     "semantic_proof_owner": "aoa-evals"
   },
   "consumer_command": [
+    "python scripts/code_intelligence_python_provider.py build --runtime PREPARED_NPM_PREFIX --output /srv/abyss-machine/artifacts/code-intelligence/abyss-machine-code-intelligence-python-provider-VERSION.tar.gz --source-ref SOURCE_REF --json",
     "python scripts/build_code_intelligence_provider.py --ctags CTAGS --output /srv/abyss-machine/artifacts/code-intelligence/abyss-machine-code-intelligence-universal-ctags-VERSION.tar.gz --source-ref SOURCE_REF --json",
     "python scripts/build_code_intelligence_node_providers.py --output /srv/abyss-machine/artifacts/code-intelligence/abyss-machine-code-intelligence-node-providers-VERSION.tar.gz --source-ref SOURCE_REF --json",
     "python scripts/build_code_intelligence_adjacent_providers.py --output /srv/abyss-machine/artifacts/code-intelligence/abyss-machine-code-intelligence-adjacent-providers-VERSION.tar.gz --source-ref SOURCE_REF --json",
@@ -80,6 +86,7 @@
     "abyss-machine artifacts materialize-subjects BUNDLE_DIR --registry-dir REGISTRY_DIR --store-root SUBJECT_STORE_ROOT --manifest manifests/artifact_bundles/code_intelligence_provider.bundle.json --subject-root /srv/abyss-machine/artifacts/code-intelligence --consumer-intent runtime --source-repo OWNER_REPO --source-ref SOURCE_REF --trust-root-mode github_oidc --json",
     "abyss-machine artifacts trust-gate --registry-dir REGISTRY_DIR --artifact-class code_intelligence_provider_bundle --consumer-intent runtime --source-repo OWNER_REPO --trust-root-mode github_oidc --subject-digest SUBJECT_DIGEST --json",
     "abyss-machine artifacts registry-latest --registry-dir REGISTRY_DIR --artifact-class code_intelligence_provider_bundle --consumer-intent runtime --source-repo OWNER_REPO --trust-root-mode github_oidc --json",
+    "python scripts/code_intelligence_python_provider.py inspect --archive PYTHON_ARCHIVE --bundle-dir BUNDLE_DIR --subject-root SUBJECT_ROOT --registry-dir REGISTRY_DIR --source-ref SOURCE_REF --json",
     "python scripts/install_code_intelligence_provider.py inspect --archive ARCHIVE --bundle-dir BUNDLE_DIR --subject-root /srv/abyss-machine/artifacts/code-intelligence --registry-dir REGISTRY_DIR --json",
     "python scripts/install_code_intelligence_provider.py install --archive ARCHIVE --bundle-dir BUNDLE_DIR --subject-root /srv/abyss-machine/artifacts/code-intelligence --registry-dir REGISTRY_DIR --apply --json",
     "python scripts/install_code_intelligence_provider.py exercise --archive ARCHIVE --bundle-dir BUNDLE_DIR --subject-root /srv/abyss-machine/artifacts/code-intelligence --registry-dir REGISTRY_DIR --runtime-root /srv/abyss-machine/runtimes/code-intelligence --json",
