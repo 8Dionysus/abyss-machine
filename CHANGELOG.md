@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add SCIP Python to the manual signed provider producer with an exact
+  Node/npm toolchain, script-free locked dependency preparation and two-build
+  byte parity. Clarify the existing private-data exclusion without changing
+  the trust gate or granting old registry records a new admission.
 - Add an isolated SCIP Python candidate builder and exact-bundle inspector,
   with a complete npm dependency lock, bounded deterministic archives and
   fail-closed runtime admission. Keep tool dependencies separate from the

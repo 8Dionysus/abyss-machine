@@ -66,9 +66,35 @@ Unsigned, missing, substituted, wrong-source, denied and manual-review
 candidates remain blocked. No inspection verdict performs installation.
 
 No new trust root, registry record, privacy waiver, release, provider-health
-claim or semantic proof is supplied by this route. The existing production
-workflow does not yet produce this fourth subject. Installation and STACK
-execution/capture are subsequent owner work, not implied by these source APIs.
+claim or semantic proof is supplied by these source APIs. Installation and
+STACK execution/capture remain separate owner operations.
+
+## Signed production route
+
+The existing manual `Artifact Production Evidence` workflow, selected with
+`artifact=code_intelligence_provider` on reviewed `main`, now builds the Python
+archive along with the other three provider archives. Its pinned setup-node
+action selects Node 22.23.1 (bundled npm 10.9.8), matching the build lock. Both
+versions are checked before preparation. Fresh prefixes receive exact tracked
+npm inputs; `npm ci` disables lifecycle scripts, audit and funding requests,
+ignores user/global npm configuration and uses runner-local temporary cache.
+No SCIP executable is invoked during this production step.
+
+The builder runs twice over that prefix with the same exact source commit;
+different output bytes stop the job. The repeat archive stays outside the
+signed aggregate, leaving exactly one Python archive subject. Existing ABI,
+SBOM, SLSA/in-toto, Cosign verification, source-bound GitHub OIDC signature and
+attestation steps then cover the complete aggregate. The workflow itself is
+part of the provider ABI source surface. Immutable workflow/source provenance
+binds these build commands and exact lock inputs; a local unsigned build alone
+does not acquire that claim.
+
+The provider class's privacy declaration explicitly excludes all private data,
+including host evidence, indexes, worktrees, observations, caches and runtime
+state. It is compatible with the existing strict privacy parser; the parser,
+mandatory controls and signer policy are unchanged. This source clarification
+does not relabel an old registry record or admit an existing artifact. Obtain
+fresh signed evidence and an exact latest `allow` decision before consumption.
 
 ## Verification
 

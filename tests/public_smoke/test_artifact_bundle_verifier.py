@@ -6842,6 +6842,19 @@ def test_trust_gate_allows_public_boundary_with_private_exclusions_for_release_c
     )
 
 
+def test_provider_policy_privacy_exclusion_matches_unchanged_production_gate() -> None:
+    boundary = artifact_bundles.artifact_class_rule("code_intelligence_provider_bundle")["identity"]["privacy_boundary"]
+    assert artifact_bundles.production_privacy_boundary_review_reason(boundary) == ""
+    for excluded in ("host evidence", "indexes", "source worktrees", "observations", "caches", "runtime state"):
+        assert excluded in boundary
+    for old_or_private in (
+        "publishable provider payloads only; excludes host indexes, source worktrees, observations, caches, runtime state, and private evidence",
+        "public-safe provider payloads with private host evidence",
+        "private host evidence; not public repo content",
+    ):
+        assert artifact_bundles.production_privacy_boundary_review_reason(old_or_private) == "production_consumer_requires_public_privacy_boundary"
+
+
 def test_trust_gate_requires_manual_review_for_host_managed_public_release_consumers(tmp_path: Path) -> None:
     bundle = tmp_path / "public-source-seed"
     registry = tmp_path / "registry"
