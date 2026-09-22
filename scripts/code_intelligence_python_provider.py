@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build or inspect a SCIP Python candidate without executing or installing it."""
+"""Build, inspect or explicitly install a SCIP Python artifact; never execute it."""
 
 from __future__ import annotations
 
@@ -14,6 +14,9 @@ sys.path.insert(0, str(ROOT / "src"))
 from abyss_machine.code_intelligence_python_provider import (  # noqa: E402
     build_python_provider_archive,
     inspect_python_provider_artifact,
+)
+from abyss_machine.code_intelligence_python_install import (  # noqa: E402
+    install_python_provider_artifact,
 )
 
 
@@ -48,6 +51,21 @@ def main(argv: list[str] | None = None) -> int:
     ):
         inspect.add_argument("--" + argument, required=True)
     inspect.add_argument("--json", action="store_true")
+    install = commands.add_parser("install")
+    for argument in (
+        "archive",
+        "bundle-dir",
+        "subject-root",
+        "registry-dir",
+        "source-ref",
+        "producer-source-root",
+    ):
+        install.add_argument("--" + argument, required=True)
+    install.add_argument(
+        "--runtime-root", default="/srv/abyss-machine/runtimes/code-intelligence"
+    )
+    install.add_argument("--apply", action="store_true")
+    install.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     try:
         if args.command == "build":
@@ -73,6 +91,17 @@ def main(argv: list[str] | None = None) -> int:
             )
             result["metadata"]["file_count"] = len(result["metadata"].pop("files"))
             result["ok"] = True
+        elif args.command == "install":
+            result = install_python_provider_artifact(
+                args.archive,
+                args.bundle_dir,
+                subject_root=args.subject_root,
+                registry_dir=args.registry_dir,
+                producer_source_root=args.producer_source_root,
+                expected_source_ref=args.source_ref,
+                runtime_root=args.runtime_root,
+                apply=args.apply,
+            )
         else:
             result = inspect_python_provider_artifact(
                 args.archive,

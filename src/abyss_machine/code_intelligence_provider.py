@@ -646,7 +646,7 @@ def _preflight_summary(document: Mapping[str, Any], *, command: str, returncode:
     }
 
 
-def run_owner_preflights(*, archive_bytes: int, runtime_root: Path) -> dict[str, Any]:
+def run_owner_preflights(*, archive_bytes: int, runtime_root: Path, provider_label: str = "Universal Ctags") -> dict[str, Any]:
     """Run the two read-only owner controls required before durable install."""
 
     executable = shutil.which("abyss-machine") or "/usr/local/bin/abyss-machine"
@@ -673,9 +673,9 @@ def run_owner_preflights(*, archive_bytes: int, runtime_root: Path) -> dict[str,
                 "changes",
                 "preflight",
                 "--intent",
-                "install exact Universal Ctags code-intelligence provider artifact",
+                f"install exact {provider_label} code-intelligence provider artifact",
                 "--surface",
-                "runtimes/code-intelligence",
+                str(runtime_root),
                 "--json",
             ],
         ),
