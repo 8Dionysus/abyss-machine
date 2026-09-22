@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add an explicit, non-executing SCIP Python installer with current-policy
+  admission, exact producer/installer source identities, expanded-write
+  preflight, atomic no-replacement placement and full installed-byte/link
+  verification. Keep Node binding, runtime activation and semantic proof separate.
 - Add SCIP Python to the manual signed provider producer with an exact
   Node/npm toolchain, script-free locked dependency preparation and two-build
   byte parity. Clarify the existing private-data exclusion without changing

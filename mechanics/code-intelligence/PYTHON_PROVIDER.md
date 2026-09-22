@@ -1,8 +1,9 @@
 # SCIP Python candidate route
 
-This additive MACHINE route packages and inspects a **supplied, prepared** npm
-prefix. It neither installs nor executes a provider. The existing TypeScript
-archive, installer, runtime-gate issuer and production workflow are unchanged.
+This additive MACHINE route packages a **supplied, prepared** npm prefix,
+inspects its signed artifact and can explicitly install it after fresh exact
+admission. It never executes a provider. The TypeScript realization remains
+separate.
 
 ## Three different identities
 
@@ -66,8 +67,53 @@ Unsigned, missing, substituted, wrong-source, denied and manual-review
 candidates remain blocked. No inspection verdict performs installation.
 
 No new trust root, registry record, privacy waiver, release, provider-health
-claim or semantic proof is supplied by these source APIs. Installation and
-STACK execution/capture remain separate owner operations.
+claim or semantic proof is supplied by these source APIs. STACK execution and
+capture remain separate owner operations.
+
+## Exact installation
+
+`scripts/code_intelligence_python_provider.py install` defaults to a dry run;
+`--apply` is required for placement. Supply the archive, bundle, subject root,
+registry, exact `commit:` source ref and **producer** source root explicitly.
+Both the producer checkout and the currently executing installer checkout must
+be clean, exact Git roots. The producer must match the archive commit. Its ABI
+is verified against that checkout, while the current installer independently
+checks its accepted lock/npm inputs. It requires producer/current equality of
+the artifact-class rule, global policy fields, ABI surface epoch/identity and
+bundle contract; only ABI input path lists (separately verified at the producer)
+and operator command syntax may differ. It then calls the current owner's
+existing gate implementation on the exact latest runtime record. An old source
+root cannot select old consumer policy. Producer identity is not relabeled as
+installer identity.
+
+Placement is content-addressed at
+`RUNTIME_ROOT/providers/scip-python/ARCHIVE_SHA256/`, preserving the archive's
+`runtime/`, metadata and lock layout, plus a local `installation.json`. There
+is no current pointer, version switch, service activation, npm invocation or
+version probe. Node is not included or admitted by this operation: its separate
+installed identity (minimum 22.22.2), the Python project environment and later
+execution remain explicit requirements.
+
+The apply path checks storage for **expanded** payload bytes plus filesystem
+overhead and runs changes preflight on the exact requested root. The caller
+must also obtain the host capacity lease and change-ledger record. A private
+staging tree is verified, flushed, and published with Linux
+[`renameat2(RENAME_NOREPLACE)`](https://man7.org/linux/man-pages/man2/rename.2.html).
+An occupied target, even an empty directory created concurrently, is never
+replaced. An unsupported kernel/filesystem fails closed; there is no
+check-then-rename fallback. Parent traversal never follows symlinks. The final
+publish rechecks source identities and the exact same latest registry record.
+
+Idempotence re-verifies every byte, mode, file/link type, internal link target,
+metadata file and the complete path set, including the local installation
+identity. Missing/extra files, empty foreign directories, hard links and drift
+are rejected without repair. The v1 identity deliberately binds the exact
+installer source as well as producer source: a changed installer or registry
+identity is not silently treated as the same install. Such a migration requires
+an owner-reviewed lifecycle operation; it does not overwrite this placement.
+Consumers must keep re-verifying against the admitted archive, not trust the
+mutable local JSON alone. This protects placement under a trusted host owner;
+it is not a sandbox against a hostile privileged or same-UID process.
 
 ## Signed production route
 

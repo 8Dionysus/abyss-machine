@@ -3,9 +3,10 @@
 ## Mechanic card
 
 The additive [SCIP Python candidate route](PYTHON_PROVIDER.md) supplies an
-independently locked, non-executing archive builder and exact-bundle inspector.
-It does not replace the existing TypeScript realization or provide a Python
-installation, LIVE session or semantic verdict.
+independently locked, non-executing archive builder, exact-bundle inspector and
+explicit no-replacement installer with full installed-byte verification.
+It does not replace the TypeScript realization or establish a LIVE session,
+Node runtime identity or semantic verdict.
 
 This package gives the host layer one aggregate, content-addressed provider
 plane: Universal Ctags; exact Node runtimes for Tree-sitter, SCIP, and LSP;

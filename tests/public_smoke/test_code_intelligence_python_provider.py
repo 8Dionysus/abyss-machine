@@ -5,9 +5,12 @@ import copy
 import gzip
 import io
 import json
+import os
 from pathlib import Path
+import subprocess
 import sys
 import tarfile
+from unittest.mock import create_autospec
 
 import pytest
 
@@ -16,6 +19,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from abyss_machine import artifact_bundles  # noqa: E402
 from abyss_machine import code_intelligence_python_provider as provider  # noqa: E402
+from abyss_machine import code_intelligence_python_install as installer  # noqa: E402
 
 SOURCE = "commit:" + "a" * 40
 LOCK = ROOT / "manifests/code_intelligence_python_provider.lock.json"
@@ -437,3 +441,343 @@ def test_exact_consumer_binding_and_verdict(
     archive.write_bytes(b"not the signed subject")
     assert inspect(archive, bundle, tmp_path)["status"] == "blocked"
     assert not calls
+
+
+@pytest.fixture
+def install_case(
+    prepared: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> dict:
+    """Fixture trust/source stubs test placement, never real admission."""
+    archive, bundle = bundle_for(prepared, tmp_path)
+    consumer = tmp_path / "consumer-source"
+    write_json(
+        consumer / "manifests/code_intelligence_python_provider.lock.json",
+        prepared["lock"],
+    )
+    inputs = consumer / "mechanics/code-intelligence/parts/scip-python"
+    write_json(inputs / "package.json", prepared["manifest"])
+    write_json(inputs / "package-lock.json", prepared["package_lock"])
+    for relative in (
+        "manifests/artifact_signature_policy.manifest.json",
+        "manifests/artifact_bundles/code_intelligence_provider.bundle.json",
+    ):
+        write_json(consumer / relative, json.loads((ROOT / relative).read_text()))
+    monkeypatch.setattr(installer, "INSTALLER_ROOT", consumer)
+    monkeypatch.setattr(
+        installer,
+        "_source_identity",
+        lambda root, expected_ref=None: {
+            "commit": "a" * 40 if root == ROOT else "b" * 40,
+            "tree": "d" * 40,
+        },
+    )
+    monkeypatch.setattr(
+        artifact_bundles, "verify_bundle", lambda *args, **kwargs: {"ok": True}
+    )
+    gate_calls, preflight_calls = [], []
+
+    def gate(*args: object, **kwargs: object) -> dict:
+        gate_calls.append(kwargs)
+        return {
+            "ok": True,
+            "verdict": "allow",
+            "record_id": "sha256:" + "c" * 64,
+            "latest_record_id": "sha256:" + "c" * 64,
+        }
+
+    def preflight(**kwargs: object) -> dict:
+        preflight_calls.append(kwargs)
+        return {"ok": True}
+
+    real_gate = artifact_bundles.trust_gate
+    monkeypatch.setattr(
+        artifact_bundles,
+        "trust_gate",
+        create_autospec(real_gate, side_effect=gate),
+    )
+    monkeypatch.setattr(installer, "run_owner_preflights", preflight)
+    return {
+        "archive": archive,
+        "bundle": bundle,
+        "gate_calls": gate_calls,
+        "real_gate": real_gate,
+        "preflight_calls": preflight_calls,
+        "runtime": tmp_path / "installed",
+        "args": {
+            "subject_root": tmp_path,
+            "registry_dir": tmp_path / "registry",
+            "producer_source_root": ROOT,
+            "expected_source_ref": SOURCE,
+            "runtime_root": tmp_path / "installed",
+        },
+    }
+
+
+def install(case: dict, *, apply: bool = True) -> dict:
+    return installer.install_python_provider_artifact(
+        case["archive"], case["bundle"], **case["args"], apply=apply
+    )
+
+
+def test_install_dry_run_then_verified_idempotence(
+    install_case: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    case = install_case
+    monkeypatch.setattr(
+        subprocess,
+        "Popen",
+        lambda *a, **kw: pytest.fail("provider execution forbidden"),
+    )
+    dry = install(case, apply=False)
+    assert dry["status"] == "ready_to_install" and dry["ok"]
+    assert not case["runtime"].exists() and not case["preflight_calls"]
+    result = install(case)
+    assert result["status"] == "installed" and result["ok"]
+    assert result["provider_executed"] is False
+    assert result["installation"]["producer_source"]["commit"] == "a" * 40
+    assert result["installation"]["installer_source"]["commit"] == "b" * 40
+    assert result["installation"]["node_binding"] == "required-before-execution"
+    assert all(
+        call["consumer_intent"] == "runtime" and call["require_latest"] is True
+        for call in case["gate_calls"]
+    )
+    assert case["gate_calls"][-1]["record_id"] == result["installation"]["record_id"]
+    archive = provider.read_python_provider_archive(case["archive"])
+    expanded = sum(
+        len(member.get("payload", b"")) for member in archive["members"].values()
+    )
+    assert case["preflight_calls"][0]["archive_bytes"] > expanded
+    assert case["preflight_calls"][0]["runtime_root"] == case["runtime"]
+    monkeypatch.setattr(
+        installer, "_write_tree", lambda *a: pytest.fail("idempotence must not rewrite")
+    )
+    again = install(case)
+    assert again["status"] == "already_installed" and again["written"] == []
+    assert len(case["preflight_calls"]) == 1
+
+
+@pytest.mark.parametrize(
+    "drift",
+    [
+        "bytes",
+        "mode",
+        "missing",
+        "extra",
+        "link",
+        "directory-link",
+        "empty-directory",
+        "identity",
+        "hardlink",
+        "root-mode",
+    ],
+)
+def test_installed_drift_is_not_repaired_or_accepted(
+    install_case: dict, drift: str
+) -> None:
+    first = install(install_case)
+    target = Path(first["target"])
+    entry = target / first["installation"]["entrypoint"]
+    if drift == "bytes":
+        entry.write_bytes(b"foreign")
+    elif drift == "mode":
+        entry.chmod(0o600)
+    elif drift == "missing":
+        entry.unlink()
+    elif drift == "extra":
+        (target / "foreign").write_bytes(b"foreign")
+    elif drift == "link":
+        link = target / "runtime/node_modules/.bin/scip-python"
+        link.unlink()
+        link.symlink_to("/foreign")
+    elif drift == "directory-link":
+        directory = target / "runtime/node_modules/dependency"
+        directory.rename(target / "moved")
+        directory.symlink_to(target / "moved", target_is_directory=True)
+    elif drift == "empty-directory":
+        (target / "unexpected").mkdir()
+    elif drift == "identity":
+        (target / "installation.json").write_bytes(b"{}")
+    elif drift == "hardlink":
+        os.link(entry, install_case["runtime"] / "linked")
+    else:
+        target.chmod(0o777)
+    for apply in (False, True):
+        result = install(install_case, apply=apply)
+        assert result["status"] == "blocked" and result["written"] == []
+    assert len(install_case["preflight_calls"]) == 1
+
+
+@pytest.mark.parametrize(
+    "verdict", ["deny", "manual_review_required", "unknown", "warn"]
+)
+def test_installer_requires_actual_allow(
+    install_case: dict, monkeypatch: pytest.MonkeyPatch, verdict: str
+) -> None:
+    monkeypatch.setattr(
+        artifact_bundles,
+        "trust_gate",
+        lambda *a, **kw: {"ok": True, "verdict": verdict},
+    )
+    result = install(install_case)
+    assert not result["ok"] and not install_case["runtime"].exists()
+    assert not install_case["preflight_calls"]
+
+
+def test_installer_stops_if_gate_changes_during_staging(
+    install_case: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = 0
+
+    def changing(*args: object, **kwargs: object) -> dict:
+        nonlocal calls
+        calls += 1
+        return {
+            "ok": True,
+            "verdict": "allow" if calls == 1 else "deny",
+            "record_id": "sha256:" + "c" * 64,
+            "latest_record_id": "sha256:" + "c" * 64,
+        }
+
+    monkeypatch.setattr(artifact_bundles, "trust_gate", changing)
+    result = install(install_case)
+    assert result["status"] == "blocked" and result["written"] == []
+    assert not Path(result["target"]).exists()
+    assert list(Path(result["target"]).parent.iterdir()) == []
+
+
+def test_installer_real_empty_registry_is_not_admission(
+    install_case: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(artifact_bundles, "trust_gate", install_case["real_gate"])
+    result = install(install_case)
+    assert result["status"] == "blocked"
+    assert result["trust_gate"]["verdict"] == "unknown"
+    assert result["trust_gate"]["blockers"] == ["no_registry_record"]
+    assert not install_case["runtime"].exists()
+    assert not install_case["preflight_calls"]
+
+
+@pytest.mark.parametrize("failure", ["source-drift", "no-atomic-rename"])
+def test_installer_cleans_only_staging_when_publication_is_unavailable(
+    install_case: dict, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    if failure == "source-drift":
+        original = installer._source_identity
+        calls = 0
+
+        def changed(root: Path, expected_ref: str | None = None) -> dict:
+            nonlocal calls
+            calls += 1
+            identity = original(root, expected_ref)
+            return {**identity, "tree": "e" * 40} if calls > 2 else identity
+
+        monkeypatch.setattr(installer, "_source_identity", changed)
+        reason = "source identity changed during staging"
+    else:
+        monkeypatch.setattr(installer.ctypes, "CDLL", lambda *a, **kw: object())
+        reason = "atomic no-replace rename is unavailable"
+    result = install(install_case)
+    assert result["status"] == "blocked" and result["written"] == []
+    assert reason in result["reason"]
+    assert not Path(result["target"]).exists()
+    assert list(Path(result["target"]).parent.iterdir()) == []
+
+
+def test_installer_refuses_empty_destination_created_at_publish(
+    install_case: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real = installer._rename_new
+    occupied = []
+
+    def race(parent: int, staging: str, target: str) -> None:
+        os.mkdir(target, dir_fd=parent)
+        occupied.append(os.stat(target, dir_fd=parent).st_ino)
+        real(parent, staging, target)
+
+    monkeypatch.setattr(installer, "_rename_new", race)
+    result = install(install_case)
+    assert result["status"] == "blocked" and result["error_type"] == "FileExistsError"
+    target = Path(result["target"])
+    assert target.stat().st_ino == occupied[0] and list(target.iterdir()) == []
+    assert list(target.parent.iterdir()) == [target]
+
+
+def test_installer_rejects_symlink_ancestor_and_owner_preflight_denial(
+    install_case: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    install_case["runtime"].symlink_to(elsewhere, target_is_directory=True)
+    assert install(install_case)["status"] == "blocked"
+    assert list(elsewhere.iterdir()) == []
+    install_case["runtime"].unlink()
+    monkeypatch.setattr(installer, "run_owner_preflights", lambda **kw: {"ok": False})
+    assert install(install_case)["reason"] == "owner write preflight denied"
+    assert not install_case["runtime"].exists()
+
+
+def test_installer_keeps_consumer_inputs_and_signature_required(
+    install_case: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        artifact_bundles, "verify_bundle", lambda *a, **kw: {"ok": False}
+    )
+    assert install(install_case)["reason"] == "producer bundle verification failed"
+    assert not install_case["runtime"].exists()
+    write_json(
+        installer.INSTALLER_ROOT
+        / "mechanics/code-intelligence/parts/scip-python/package.json",
+        {},
+    )
+    assert (
+        install(install_case)["reason"]
+        == "provider inputs differ from current consumer contract"
+    )
+    assert not install_case["gate_calls"]
+
+
+def test_source_identity_rejects_wrong_commit_dirty_or_ancestor_root(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    (root / "file").write_text("fixture\n")
+    for args in (
+        ("init", "-q"),
+        ("add", "file"),
+        (
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "commit",
+            "-qm",
+            "fixture",
+        ),
+    ):
+        subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True)
+    identity = installer._source_identity(root)
+    assert installer._source_identity(root, "commit:" + identity["commit"]) == identity
+    with pytest.raises(ValueError, match="commit mismatch"):
+        installer._source_identity(root, "commit:" + "e" * 40)
+    (root / "untracked").write_text("dirty")
+    with pytest.raises(ValueError, match="clean owner"):
+        installer._source_identity(root)
+    nested = root / "nested"
+    nested.mkdir()
+    with pytest.raises(ValueError, match="exact owner"):
+        installer._source_identity(nested)
+
+
+def test_installer_does_not_select_old_consumer_policy(install_case: dict) -> None:
+    policy_path = (
+        installer.INSTALLER_ROOT / "manifests/artifact_signature_policy.manifest.json"
+    )
+    policy = json.loads(policy_path.read_text())
+    policy["artifact_classes"]["code_intelligence_provider_bundle"][
+        "privacy_boundary"
+    ] = "different policy"
+    write_json(policy_path, policy)
+    result = install(install_case)
+    assert result["reason"] == "producer and current consumer artifact policy differ"
+    assert not install_case["gate_calls"] and not install_case["runtime"].exists()

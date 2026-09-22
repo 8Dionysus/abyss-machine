@@ -1291,6 +1291,7 @@
         "src/abyss_machine/code_intelligence_gate.py",
         "src/abyss_machine/code_intelligence_provider.py",
         "src/abyss_machine/code_intelligence_python_provider.py",
+        "src/abyss_machine/code_intelligence_python_install.py",
         "scripts/code_intelligence_python_provider.py",
         "manifests/code_intelligence_python_provider.lock.json",
         "manifests/code_intelligence_node_providers.lock.json",
