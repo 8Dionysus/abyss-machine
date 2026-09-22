@@ -606,14 +606,9 @@ def inspect_python_provider_artifact(
         }
         if gate.get("ok") is True and gate.get("verdict") == "allow":
             result["status"] = "admitted"
-    except (
-        OSError,
-        ValueError,
-        KeyError,
-        TypeError,
-        AttributeError,
-        tarfile.TarError,
-    ) as exc:
+    except Exception as exc:
+        # Corrupt compression, malformed controls and sidecar failures all deny
+        # inspection. Cancellation (BaseException) is not converted to a verdict.
         result["reason"], result["error_type"] = (
             "provider_inspection_failed",
             type(exc).__name__,

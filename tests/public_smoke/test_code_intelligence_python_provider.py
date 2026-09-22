@@ -326,6 +326,24 @@ def test_reader_rejects_hidden_trailing_payload(prepared: dict, tmp_path: Path) 
         provider.read_python_provider_archive(path)
 
 
+@pytest.mark.parametrize("corruption", ["truncated", "invalid-deflate"])
+def test_corrupt_compression_is_a_blocked_inspection(
+    prepared: dict, tmp_path: Path, corruption: str
+) -> None:
+    path = tmp_path / "candidate.tar.gz"
+    build(prepared, path)
+    payload = path.read_bytes()
+    if corruption == "truncated":
+        payload = payload[:-1]
+    else:
+        payload = payload[:10] + b"\xff" * 20 + payload[30:]
+    path.write_bytes(payload)
+    result = inspect(path, tmp_path / "no-bundle", tmp_path)
+    assert result["status"] == "blocked"
+    assert result["reason"] == "provider_inspection_failed"
+    assert result["error_type"] in {"EOFError", "error"}
+
+
 def bundle_for(prepared: dict, tmp_path: Path) -> tuple[Path, Path]:
     archive = (
         tmp_path / "abyss-machine-code-intelligence-python-provider-fixture.tar.gz"
