@@ -5,7 +5,7 @@ inspects its signed artifact and can explicitly install it after fresh exact
 admission. It never executes a provider. The TypeScript realization remains
 separate.
 
-## Three different identities
+## Four different identities
 
 1. `manifests/code_intelligence_python_provider.lock.json` identifies the
    indexer distribution and its consumer ABI assumptions.
@@ -15,7 +15,13 @@ separate.
    `^4.5.4`; pinning it prevents an unconstrained ts-node peer from introducing
    TypeScript 7's conditional native package family. This is not a runtime
    compatibility claim. All install scripts remain disabled.
-3. The analyzed project's complete source view, configuration, Python
+3. `node_runtime` pins the official Linux x64 Node 22.23.1 release archive,
+   executable and upstream license by SHA-256. The archive checksum is from
+   [the exact upstream release checksums](https://nodejs.org/dist/v22.23.1/SHASUMS256.txt);
+   executable/license hashes are over those members of that checksum-matching
+   release. These source pins are not a separate upstream-signature or admission
+   verdict. The signed MACHINE producer binds their selection and packaging.
+4. The analyzed project's complete source view, configuration, Python
    interpreter, import paths, dependency files and explicit environment JSON
    are **separate STACK-owned analysis inputs**. They do not belong in the
    public tool archive. An empty dependency list must not stand in for unknown
@@ -44,7 +50,8 @@ resolve new ranges during a release build. Do not run the resulting provider,
 even for a version probe, before its exact consumer admission.
 
 The `build` subcommand of `scripts/code_intelligence_python_provider.py`
-requires the prefix, an output inside an existing artifact root, and a truthful
+requires the prefix, `--node-distribution` pointing to the supplied pinned
+release tar.gz, an output inside an existing artifact root, and a truthful
 qualified source ref. `--inputs` and `--lock` default to the checked-in source
 inputs. It validates the whole installed package set against the complete
 lock, binds every regular file's bytes/mode and every internal file symlink,
@@ -54,8 +61,26 @@ different artifact. It downloads and executes nothing.
 The archive's inventory and package metadata checks establish internal
 consistency, **not independent equality with upstream package payloads**.
 The script-free npm-ci build and its exact tools/inputs must be covered by the
-later signed build provenance. The Node executable itself is not included;
-its admitted installed identity must also be bound by the eventual consumer.
+later signed build provenance.
+
+The v2 archive includes the exact Node executable at `runtime/node/bin/node`
+and its license at `runtime/node/LICENSE`. The builder verifies the complete
+release archive digest before bounded decoding, selects only these two regular
+files, and verifies their pinned digests and modes. It does not run Node,
+extract the upstream tree, copy npm, or discover an interpreter through PATH.
+The reader independently rechecks the executable and license against the lock,
+not merely the archive's self-reported inventory. Only the Node executable has
+a 128 MiB member limit; ordinary members retain 64 MiB and the whole payload
+retains 256 MiB. The release input itself is limited to 64 MiB compressed and
+256 MiB expanded.
+
+This closes the interpreter gap inside the existing signed provider unit.
+Host RPM verification alone does not bind an interpreter to this artifact's
+consumer admission. A separate Node artifact would introduce another lifecycle
+and admission dependency; bundling adds approximately 125 MB of unpacked bytes
+but makes the provider's executable input exact without a new trust root,
+artifact class, policy waiver or implicit host fallback. The TypeScript npm
+archive and its older runtime-gate issuer are not upgraded by this change.
 
 The dedicated Python archive is an optional fourth subject of the existing
 provider aggregate. Optional means old TypeScript-only aggregates can still
@@ -90,9 +115,13 @@ Placement is content-addressed at
 `RUNTIME_ROOT/providers/scip-python/ARCHIVE_SHA256/`, preserving the archive's
 `runtime/`, metadata and lock layout, plus a local `installation.json`. There
 is no current pointer, version switch, service activation, npm invocation or
-version probe. Node is not included or admitted by this operation: its separate
-installed identity (minimum 22.22.2), the Python project environment and later
-execution remain explicit requirements.
+version probe. The v2 installation identity includes the bundled Node's
+entrypoint, version, platform, archive and file hashes. This is verified
+placement of an admitted component, not an execution or health result. The
+Python project environment, host shared-library ABI compatibility and later
+execution remain explicit requirements. Consumers must invoke this exact Node
+path with the exact SCIP entrypoint; ambient `NODE_OPTIONS`, module/preload
+lookup and PATH must not silently alter that execution contract.
 
 The apply path checks storage for **expanded** payload bytes plus filesystem
 overhead and runs changes preflight on the exact requested root. The caller
@@ -107,11 +136,14 @@ publish rechecks source identities and the exact same latest registry record.
 Idempotence re-verifies every byte, mode, file/link type, internal link target,
 metadata file and the complete path set, including the local installation
 identity. Missing/extra files, empty foreign directories, hard links and drift
-are rejected without repair. The v1 identity deliberately binds the exact
+are rejected without repair. The installation identity deliberately binds the exact
 installer source as well as producer source: a changed installer or registry
 identity is not silently treated as the same install. Such a migration requires
 an owner-reviewed lifecycle operation; it does not overwrite this placement.
-Consumers must keep re-verifying against the admitted archive, not trust the
+V1 archives/installations remain historical evidence only for this v2 consumer;
+they are neither relabeled nor repaired in place. A new signed v2 archive gets
+a separate content-addressed placement. Consumers must keep re-verifying
+against the admitted archive, not trust the
 mutable local JSON alone. This protects placement under a trusted host owner;
 it is not a sandbox against a hostile privileged or same-UID process.
 
@@ -124,7 +156,11 @@ action selects Node 22.23.1 (bundled npm 10.9.8), matching the build lock. Both
 versions are checked before preparation. Fresh prefixes receive exact tracked
 npm inputs; `npm ci` disables lifecycle scripts, audit and funding requests,
 ignores user/global npm configuration and uses runner-local temporary cache.
-No SCIP executable is invoked during this production step.
+No SCIP executable is invoked during this production step. The workflow also
+downloads the independently pinned official Node release, checks its archive
+digest before npm preparation, and supplies the same release to both builds.
+Builder checks bind the executable/license bytes in addition to that archive
+digest. Download failure or mismatch prevents the signing path.
 
 The builder runs twice over that prefix with the same exact source commit;
 different output bytes stop the job. The repeat archive stays outside the

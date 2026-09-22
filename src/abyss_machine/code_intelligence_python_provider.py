@@ -28,10 +28,11 @@ from .code_intelligence_provider import (
 )
 
 PROVIDER_ID = "scip-python"
-ARCHIVE_SCHEMA = "abyss_machine_code_intelligence_python_provider_archive_v1"
-LOCK_SCHEMA = "abyss_machine_code_intelligence_python_provider_lock_v1"
+ARCHIVE_SCHEMA = "abyss_machine_code_intelligence_python_provider_archive_v2"
+LOCK_SCHEMA = "abyss_machine_code_intelligence_python_provider_lock_v2"
 MAX_FILES = 12000
 MAX_MEMBER_BYTES = 64 * 1024 * 1024
+MAX_NODE_BYTES = 128 * 1024 * 1024
 MAX_TOTAL_BYTES = 256 * 1024 * 1024
 MAX_CONTROL_BYTES = 4 * 1024 * 1024
 MAX_JSON_DEPTH = 64
@@ -123,6 +124,101 @@ def _safe_path(name: str) -> bool:
     )
 
 
+def _node_contract(lock: Mapping[str, Any]) -> dict[str, Any]:
+    node = lock.get("node_runtime")
+    if not isinstance(node, dict) or set(node) != {
+        "version",
+        "platform",
+        "distribution_url",
+        "distribution_sha256",
+        "entrypoint",
+        "executable_sha256",
+        "license_sha256",
+    }:
+        raise ValueError("exact bundled Node runtime contract required")
+    version = node["version"]
+    if (
+        not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", str(version))
+        or version != lock.get("build", {}).get("node_version")
+        or node["platform"] != "linux-x86_64"
+        or node["entrypoint"] != "node/bin/node"
+        or node["distribution_url"]
+        != f"https://nodejs.org/dist/v{version}/node-v{version}-linux-x64.tar.gz"
+        or not all(
+            re.fullmatch(r"sha256:[0-9a-f]{64}", str(node[key]))
+            for key in ("distribution_sha256", "executable_sha256", "license_sha256")
+        )
+    ):
+        raise ValueError("unsupported or unpinned Node runtime contract")
+    return node
+
+
+def _member_limit(name: str) -> int:
+    if name in CONTROLS or name == "runtime/node/LICENSE":
+        return MAX_CONTROL_BYTES
+    if name == "runtime/node/bin/node":
+        return MAX_NODE_BYTES
+    return MAX_MEMBER_BYTES
+
+
+def _node_members(path: Path, lock: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Select only pinned bytes from a supplied release; never extract or execute."""
+    node = _node_contract(lock)
+    payload = _read_bounded(path, MAX_MEMBER_BYTES)
+    if _digest(payload) != node["distribution_sha256"]:
+        raise ValueError("Node distribution digest mismatch")
+    with gzip.GzipFile(fileobj=io.BytesIO(payload)) as stream:
+        expanded = stream.read(MAX_TOTAL_BYTES + 1)
+    if len(expanded) > MAX_TOTAL_BYTES:
+        raise ValueError("Node distribution exceeds expansion bound")
+    root = f"node-v{node['version']}-linux-x64/"
+    wanted = {
+        root + "bin/node": "runtime/node/bin/node",
+        root + "LICENSE": "runtime/node/LICENSE",
+    }
+    members: dict[str, dict[str, Any]] = {}
+    with tarfile.open(fileobj=io.BytesIO(expanded), mode="r:") as archive:
+        for index, member in enumerate(archive):
+            if index >= MAX_FILES:
+                raise ValueError("excessive Node distribution member set")
+            name = wanted.get(member.name)
+            if name is None:
+                continue
+            mode = 0o755 if name.endswith("/bin/node") else 0o644
+            if (
+                name in members
+                or not member.isreg()
+                or member.mode != mode
+                or not 0 < member.size <= _member_limit(name)
+            ):
+                raise ValueError("invalid or duplicate Node distribution member")
+            stream = archive.extractfile(member)
+            if stream is None:
+                raise ValueError("missing Node distribution payload")
+            data = stream.read(_member_limit(name) + 1)
+            if len(data) != member.size:
+                raise ValueError("Node distribution payload size mismatch")
+            members[name] = {"kind": "file", "mode": mode, "payload": data}
+        if expanded[archive.offset :].strip(b"\0"):
+            raise ValueError("nonzero data after Node distribution end")
+    _node_identity(members, lock)
+    return members
+
+
+def _node_identity(members: Mapping[str, dict[str, Any]], lock: dict[str, Any]) -> dict:
+    node = _node_contract(lock)
+    for name, digest_key, mode in (
+        ("runtime/node/bin/node", "executable_sha256", 0o755),
+        ("runtime/node/LICENSE", "license_sha256", 0o644),
+    ):
+        if (
+            _digest(_regular(members, name)) != node[digest_key]
+            or members[name]["mode"] != mode
+        ):
+            raise ValueError("bundled Node bytes or mode mismatch")
+    return {**node, "entrypoint": "runtime/" + node["entrypoint"]}
+
+
 def validate_python_provider_inputs(
     lock: Mapping[str, Any],
     manifest: Mapping[str, Any],
@@ -136,6 +232,7 @@ def validate_python_provider_inputs(
         lock.get("language"),
     ) != (LOCK_SCHEMA, "abyss-machine", PROVIDER_ID, "python"):
         raise ValueError("Python provider lock identity mismatch")
+    _node_contract(lock)
     distribution = lock.get("distribution", {})
     if (
         not isinstance(distribution, dict)
@@ -263,6 +360,7 @@ def _runtime_identity(
     manifest = _object(_regular(members, "runtime/package.json"))
     package_lock = _object(_regular(members, "runtime/package-lock.json"))
     identity = validate_python_provider_inputs(lock, manifest, package_lock)
+    identity["node_runtime"] = _node_identity(members, lock)
     installed = _object(_regular(members, "runtime/node_modules/.package-lock.json"))
     expected = {path: row for path, row in package_lock["packages"].items() if path}
     if (
@@ -291,6 +389,8 @@ def _runtime_identity(
             "package.json",
             "package-lock.json",
             "node_modules/.package-lock.json",
+            "node/bin/node",
+            "node/LICENSE",
         }:
             if not relative.startswith("node_modules/") or (
                 not relative.startswith("node_modules/.bin/")
@@ -370,6 +470,7 @@ def build_python_provider_archive(
     lock_path: str | Path,
     package_manifest_path: str | Path,
     package_lock_path: str | Path,
+    node_distribution_path: str | Path,
     source_ref: str,
     platform: str = "linux-x86_64",
 ) -> dict[str, Any]:
@@ -382,6 +483,8 @@ def build_python_provider_archive(
     manifest = _object(_read_bounded(Path(package_manifest_path), MAX_CONTROL_BYTES))
     package_lock = _object(_read_bounded(Path(package_lock_path), MAX_CONTROL_BYTES))
     validate_python_provider_inputs(lock, manifest, package_lock)
+    if platform != lock["node_runtime"]["platform"]:
+        raise ValueError("provider and bundled Node platform mismatch")
     runtime = Path(runtime_dir).resolve(strict=True)
     members: dict[str, dict[str, Any]] = {}
     total = 0
@@ -414,6 +517,13 @@ def build_python_provider_archive(
         or _object(_regular(members, "runtime/package-lock.json")) != package_lock
     ):
         raise ValueError("prepared runtime does not match supplied build inputs")
+    node_members = _node_members(Path(node_distribution_path), lock)
+    if set(members) & set(node_members):
+        raise ValueError("prepared npm prefix must not supply the Node runtime")
+    total += sum(len(member["payload"]) for member in node_members.values())
+    if total > MAX_TOTAL_BYTES or len(members) + len(node_members) > MAX_FILES:
+        raise ValueError("provider with Node exceeds archive bounds")
+    members.update(node_members)
     identity = _runtime_identity(members, lock)
     metadata = {
         "schema": ARCHIVE_SCHEMA,
@@ -493,9 +603,7 @@ def read_python_provider_archive(path: str | Path) -> dict[str, Any]:
                     "mode": member.mode,
                 }
             elif member.isreg() and member.mode in {0o644, 0o755}:
-                limit = (
-                    MAX_CONTROL_BYTES if member.name in CONTROLS else MAX_MEMBER_BYTES
-                )
+                limit = _member_limit(member.name)
                 total += member.size
                 if (
                     member.size < 0
@@ -524,7 +632,7 @@ def read_python_provider_archive(path: str | Path) -> dict[str, Any]:
         metadata.get("schema") != ARCHIVE_SCHEMA
         or metadata.get("provider_id") != PROVIDER_ID
         or not _safe_source_ref(metadata.get("source_ref", ""))
-        or not re.fullmatch(r"[a-z0-9_-]{1,64}", str(metadata.get("platform", "")))
+        or metadata.get("platform") != _node_contract(lock)["platform"]
     ):
         raise ValueError("Python provider archive identity mismatch")
     identity = _runtime_identity(members, lock)

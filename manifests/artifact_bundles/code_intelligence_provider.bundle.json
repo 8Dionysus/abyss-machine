@@ -74,7 +74,7 @@
     "semantic_proof_owner": "aoa-evals"
   },
   "consumer_command": [
-    "python scripts/code_intelligence_python_provider.py build --runtime PREPARED_NPM_PREFIX --output /srv/abyss-machine/artifacts/code-intelligence/abyss-machine-code-intelligence-python-provider-VERSION.tar.gz --source-ref SOURCE_REF --json",
+    "python scripts/code_intelligence_python_provider.py build --runtime PREPARED_NPM_PREFIX --node-distribution PINNED_NODE_TAR_GZ --output /srv/abyss-machine/artifacts/code-intelligence/abyss-machine-code-intelligence-python-provider-VERSION.tar.gz --source-ref SOURCE_REF --json",
     "python scripts/build_code_intelligence_provider.py --ctags CTAGS --output /srv/abyss-machine/artifacts/code-intelligence/abyss-machine-code-intelligence-universal-ctags-VERSION.tar.gz --source-ref SOURCE_REF --json",
     "python scripts/build_code_intelligence_node_providers.py --output /srv/abyss-machine/artifacts/code-intelligence/abyss-machine-code-intelligence-node-providers-VERSION.tar.gz --source-ref SOURCE_REF --json",
     "python scripts/build_code_intelligence_adjacent_providers.py --output /srv/abyss-machine/artifacts/code-intelligence/abyss-machine-code-intelligence-adjacent-providers-VERSION.tar.gz --source-ref SOURCE_REF --json",

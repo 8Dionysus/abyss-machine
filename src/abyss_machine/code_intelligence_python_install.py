@@ -29,7 +29,7 @@ from .code_intelligence_provider import (
 )
 
 INSTALLER_ROOT = Path(__file__).resolve().parents[2]
-INSTALLATION_SCHEMA = "abyss_machine_code_intelligence_python_installation_v1"
+INSTALLATION_SCHEMA = "abyss_machine_code_intelligence_python_installation_v2"
 DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
 
 
@@ -311,7 +311,7 @@ def install_python_provider_artifact(
         "status": "blocked",
         "provider_executed": False,
         "written": [],
-        "claim_limit": "Verified placement only; Node binding, execution, coordinate semantics, STACK lifecycle and owner acceptance remain separate.",
+        "claim_limit": "Verified placement with exact bundled Node only; execution, host ABI compatibility, coordinate semantics, STACK lifecycle and owner acceptance remain separate.",
     }
     staging: str | None = None
     try:
@@ -386,7 +386,8 @@ def install_python_provider_artifact(
             "installer_source": installer_identity,
             "entrypoint": "runtime/" + lock["distribution"]["entrypoint"],
             "node_minimum": lock["build"]["node_minimum"],
-            "node_binding": "required-before-execution",
+            "node_binding": "bundled-exact-archive",
+            "node_runtime": archive["metadata"]["node_runtime"],
         }
         members = _expected_members(archive, identity)
         parent_path = Path(runtime_root) / "providers" / archive_tools.PROVIDER_ID

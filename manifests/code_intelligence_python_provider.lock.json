@@ -1,6 +1,6 @@
 {
-  "schema": "abyss_machine_code_intelligence_python_provider_lock_v1",
-  "version": "1.0.0",
+  "schema": "abyss_machine_code_intelligence_python_provider_lock_v2",
+  "version": "2.0.0",
   "owner": "abyss-machine",
   "provider_id": "scip-python",
   "capability": "scip",
@@ -22,6 +22,15 @@
     "node_version": "22.23.1",
     "node_minimum": "22.22.2"
   },
+  "node_runtime": {
+    "version": "22.23.1",
+    "platform": "linux-x86_64",
+    "distribution_url": "https://nodejs.org/dist/v22.23.1/node-v22.23.1-linux-x64.tar.gz",
+    "distribution_sha256": "sha256:7a8cb04b4a1df4eaf432125324b81b29a088e73570a23259a8de1c65d07fc129",
+    "entrypoint": "node/bin/node",
+    "executable_sha256": "sha256:93956de2e59480474a7b46571da1651180b1a050cdf32641ebec4ce6e478e068",
+    "license_sha256": "sha256:c738ae413cf561f174e34f6961f8ca458aae2369a73640dda6234c629b98bcc4"
+  },
   "consumer": {
     "index_format": "scip-protobuf-stream",
     "position_encoding": "utf-16",
@@ -33,6 +42,7 @@
   "claim_limits": [
     "Distribution metadata and a complete npm lock are build inputs, not verified package bytes or consumer admission.",
     "A prepared prefix is packaged without executing provider code; its build provenance is verified separately.",
+    "The exact Node executable and upstream license are included; installed binding still requires current artifact admission and full byte verification.",
     "The analyzed project's source, resolver dependencies and Python interpreter are separate STACK-owned inputs.",
     "The inferred coordinate ABI requires an admitted Unicode and CRLF runtime canary before semantic use."
   ]

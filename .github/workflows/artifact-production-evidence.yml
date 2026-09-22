@@ -161,6 +161,11 @@ jobs:
           python_prefix="$(mktemp -d "${RUNNER_TEMP}/scip-python.XXXXXX")"
           repeat_root="$(mktemp -d "${RUNNER_TEMP}/scip-python-repeat.XXXXXX")"
           touch "${repeat_root}/user.npmrc" "${repeat_root}/global.npmrc"
+          node_distribution="${repeat_root}/node-v22.23.1-linux-x64.tar.gz"
+          curl --fail --silent --show-error --location --max-time 120 \
+            --output "${node_distribution}" \
+            https://nodejs.org/dist/v22.23.1/node-v22.23.1-linux-x64.tar.gz
+          echo "7a8cb04b4a1df4eaf432125324b81b29a088e73570a23259a8de1c65d07fc129  ${node_distribution}" | sha256sum --check --strict
           cp mechanics/code-intelligence/parts/scip-python/package.json \
             mechanics/code-intelligence/parts/scip-python/package-lock.json "${python_prefix}/"
           npm ci --prefix "${python_prefix}" --ignore-scripts --no-audit --no-fund \
@@ -168,9 +173,11 @@ jobs:
             --cache "${RUNNER_TEMP}/npm-cache"
           python_artifact="${artifact_root}/abyss-machine-code-intelligence-python-provider-${GITHUB_SHA}.tar.gz"
           python scripts/code_intelligence_python_provider.py build \
+            --node-distribution "${node_distribution}" \
             --runtime "${python_prefix}" --output "${python_artifact}" \
             --artifact-root "${artifact_root}" --source-ref "commit:${GITHUB_SHA}" --json
           python scripts/code_intelligence_python_provider.py build \
+            --node-distribution "${node_distribution}" \
             --runtime "${python_prefix}" --output "${repeat_root}/repeat.tar.gz" \
             --artifact-root "${repeat_root}" --source-ref "commit:${GITHUB_SHA}" --json
           cmp -- "${python_artifact}" "${repeat_root}/repeat.tar.gz"

@@ -92,10 +92,21 @@ def test_python_producer_toolchain_matches_owner_lock() -> None:
     assert "package-manager-cache: false" in text
     assert f'test "$(node --version)" = "v{lock["build"]["node_version"]}"' in step
     assert f'test "$(npm --version)" = "{lock["build"]["npm_version"]}"' in step
+    assert lock["node_runtime"]["distribution_url"] in step
+    assert lock["node_runtime"]["distribution_sha256"].removeprefix("sha256:") in step
+    assert step.count('--node-distribution "${node_distribution}"') == 2
 
 
 @pytest.mark.parametrize(
-    "fault", ["none", "node-version", "npm-version", "nonreproducible"]
+    "fault",
+    [
+        "none",
+        "node-version",
+        "npm-version",
+        "node-download",
+        "node-digest",
+        "nonreproducible",
+    ],
 )
 def test_python_production_step_fails_closed_before_signing(
     tmp_path: Path, fault: str
@@ -131,16 +142,29 @@ def test_python_production_step_fails_closed_before_signing(
             if fault == "nonreproducible" and output.name == "repeat.tar.gz":
                 payload += b" drift"
             output.write_bytes(payload)
+        elif name == "curl":
+            assert args[-1] == "https://nodejs.org/dist/v22.23.1/node-v22.23.1-linux-x64.tar.gz"
+            if fault == "node-download":
+                sys.exit(22)
+            output = Path(args[args.index("--output") + 1])
+            output.write_bytes(b"wrong" if fault == "node-digest" else b"synthetic Node distribution")
         else:
             raise AssertionError(name)
         """)
-    for name in ("node", "npm", "python"):
+    for name in ("node", "npm", "python", "curl"):
         path = bin_dir / name
         path.write_text(shim)
         path.chmod(0o755)
     commit = "a" * 40
     result = subprocess.run(
-        ["bash", "-c", _python_producer_step()],
+        [
+            "bash",
+            "-c",
+            _python_producer_step().replace(
+                "7a8cb04b4a1df4eaf432125324b81b29a088e73570a23259a8de1c65d07fc129",
+                hashlib.sha256(b"synthetic Node distribution").hexdigest(),
+            ),
+        ],
         cwd=ROOT,
         env={
             **os.environ,
@@ -161,6 +185,13 @@ def test_python_production_step_fails_closed_before_signing(
         assert all(row[1:] == ["--version"] for row in invoked)
         assert not (workspace / "dist").exists()
         return
+    if fault in {"node-download", "node-digest"}:
+        assert result.returncode != 0
+        assert not any(
+            row[0] == "python" or row[:2] == ["npm", "ci"] for row in invoked
+        )
+        assert not list((workspace / "dist/code-intelligence").iterdir())
+        return
     ci = next(row for row in invoked if row[:2] == ["npm", "ci"])
     configs = [
         Path(ci[ci.index(option) + 1]) for option in ("--userconfig", "--globalconfig")
@@ -180,6 +211,9 @@ def test_python_production_step_fails_closed_before_signing(
         row[row.index("--source-ref") + 1] == f"commit:{commit}" for row in builds
     )
     assert all(row[row.index("--runtime") + 1] == str(prefix) for row in builds)
+    node_paths = {row[row.index("--node-distribution") + 1] for row in builds}
+    assert len(node_paths) == 1
+    assert Path(node_paths.pop()).read_bytes() == b"synthetic Node distribution"
     artifact_root = workspace / "dist/code-intelligence"
     archives = list(artifact_root.glob("*.tar.gz"))
     assert len(archives) == 1  # Repeat is outside the signed aggregate.

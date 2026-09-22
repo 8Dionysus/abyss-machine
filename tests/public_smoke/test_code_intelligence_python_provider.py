@@ -36,6 +36,27 @@ def prepared(tmp_path: Path) -> dict:
     """Synthetic distribution metadata, never an upstream or admitted payload."""
     runtime = tmp_path / "prefix"
     lock = json.loads(LOCK.read_text())
+    node_payload, license_payload = b"synthetic Node, never execute", b"fixture license"
+    node = lock["node_runtime"]
+    node["executable_sha256"] = provider._digest(node_payload)
+    node["license_sha256"] = provider._digest(license_payload)
+    node_archive = provider._tar_bytes(
+        {
+            f"node-v{node['version']}-linux-x64/bin/node": {
+                "kind": "file",
+                "mode": 0o755,
+                "payload": node_payload,
+            },
+            f"node-v{node['version']}-linux-x64/LICENSE": {
+                "kind": "file",
+                "mode": 0o644,
+                "payload": license_payload,
+            },
+        }
+    )
+    node_path = tmp_path / "node.tar.gz"
+    node_path.write_bytes(node_archive)
+    node["distribution_sha256"] = provider._digest(node_archive)
     integrity = "sha512-" + base64.b64encode(b"fixture".ljust(64, b"!")).decode()
     lock["distribution"]["integrity"] = integrity
     manifest = {
@@ -87,6 +108,7 @@ def prepared(tmp_path: Path) -> dict:
             "lock_path": tmp_path / "lock.json",
             "package_manifest_path": tmp_path / "package.json",
             "package_lock_path": tmp_path / "package-lock.json",
+            "node_distribution_path": node_path,
             "source_ref": SOURCE,
         },
     }
@@ -536,7 +558,13 @@ def test_install_dry_run_then_verified_idempotence(
     assert result["provider_executed"] is False
     assert result["installation"]["producer_source"]["commit"] == "a" * 40
     assert result["installation"]["installer_source"]["commit"] == "b" * 40
-    assert result["installation"]["node_binding"] == "required-before-execution"
+    assert result["installation"]["node_binding"] == "bundled-exact-archive"
+    node = result["installation"]["node_runtime"]
+    assert node["entrypoint"] == "runtime/node/bin/node"
+    assert (
+        provider._digest((Path(result["target"]) / node["entrypoint"]).read_bytes())
+        == node["executable_sha256"]
+    )
     assert all(
         call["consumer_intent"] == "runtime" and call["require_latest"] is True
         for call in case["gate_calls"]
@@ -569,6 +597,10 @@ def test_install_dry_run_then_verified_idempotence(
         "identity",
         "hardlink",
         "root-mode",
+        "node-bytes",
+        "node-mode",
+        "node-link",
+        "node-license",
     ],
 )
 def test_installed_drift_is_not_repaired_or_accepted(
@@ -599,6 +631,17 @@ def test_installed_drift_is_not_repaired_or_accepted(
         (target / "installation.json").write_bytes(b"{}")
     elif drift == "hardlink":
         os.link(entry, install_case["runtime"] / "linked")
+    elif drift.startswith("node-"):
+        node = target / first["installation"]["node_runtime"]["entrypoint"]
+        if drift == "node-bytes":
+            node.write_bytes(b"foreign Node")
+        elif drift == "node-mode":
+            node.chmod(0o644)
+        elif drift == "node-link":
+            node.unlink()
+            node.symlink_to(entry)
+        else:
+            (target / "runtime/node/LICENSE").unlink()
     else:
         target.chmod(0o777)
     for apply in (False, True):
@@ -781,3 +824,164 @@ def test_installer_does_not_select_old_consumer_policy(install_case: dict) -> No
     result = install(install_case)
     assert result["reason"] == "producer and current consumer artifact policy differ"
     assert not install_case["gate_calls"] and not install_case["runtime"].exists()
+
+
+@pytest.mark.parametrize(
+    "mutation", ["missing", "version", "platform", "url", "digest", "legacy"]
+)
+def test_node_runtime_requires_exact_supported_contract(
+    prepared: dict, mutation: str
+) -> None:
+    lock = copy.deepcopy(prepared["lock"])
+    if mutation == "missing":
+        del lock["node_runtime"]
+    elif mutation == "legacy":
+        lock["schema"] = "abyss_machine_code_intelligence_python_provider_lock_v1"
+    else:
+        key, value = {
+            "version": ("version", "22.0.0"),
+            "platform": ("platform", "linux-aarch64"),
+            "url": ("distribution_url", "https://example.invalid/node.tar.gz"),
+            "digest": ("executable_sha256", "unknown"),
+        }[mutation]
+        lock["node_runtime"][key] = value
+    with pytest.raises(ValueError):
+        provider.validate_python_provider_inputs(
+            lock, prepared["manifest"], prepared["package_lock"]
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "missing",
+        "distribution-bytes",
+        "binary-bytes",
+        "license-bytes",
+        "binary-mode",
+        "binary-link",
+    ],
+)
+def test_node_distribution_never_falls_back_to_host(
+    prepared: dict, tmp_path: Path, mutation: str
+) -> None:
+    path = prepared["args"]["node_distribution_path"]
+    if mutation == "missing":
+        path.unlink()
+    elif mutation == "distribution-bytes":
+        path.write_bytes(b"foreign distribution")
+    else:
+        node = prepared["lock"]["node_runtime"]
+        root = f"node-v{node['version']}-linux-x64/"
+        members = {
+            root + "bin/node": {
+                "kind": "file",
+                "mode": 0o755,
+                "payload": b"synthetic Node, never execute",
+            },
+            root + "LICENSE": {
+                "kind": "file",
+                "mode": 0o644,
+                "payload": b"fixture license",
+            },
+        }
+        if mutation == "binary-link":
+            members[root + "bin/node"] = {
+                "kind": "symlink",
+                "mode": 0o777,
+                "target": "/usr/bin/node",
+            }
+        elif mutation == "binary-mode":
+            members[root + "bin/node"]["mode"] = 0o644
+        else:
+            members[root + ("LICENSE" if mutation == "license-bytes" else "bin/node")][
+                "payload"
+            ] += b" drift"
+        data = provider._tar_bytes(members)
+        path.write_bytes(data)
+        node["distribution_sha256"] = provider._digest(data)
+        write_json(prepared["args"]["lock_path"], prepared["lock"])
+    with pytest.raises((OSError, ValueError)):
+        build(prepared, tmp_path / "blocked.tar.gz")
+    assert not (tmp_path / "blocked.tar.gz").exists()
+
+
+@pytest.mark.parametrize(
+    "mutation", ["node", "license", "mode", "missing", "legacy", "platform"]
+)
+def test_reader_rechecks_node_pins_even_with_recomputed_inventory(
+    prepared: dict, tmp_path: Path, mutation: str
+) -> None:
+    path = tmp_path / "archive.tar.gz"
+    build(prepared, path)
+    archive = provider.read_python_provider_archive(path)
+    members, metadata = archive["members"], archive["metadata"]
+    if mutation in {"node", "license"}:
+        name = "runtime/node/" + ("bin/node" if mutation == "node" else "LICENSE")
+        members[name]["payload"] += b" changed"
+    elif mutation == "mode":
+        members["runtime/node/bin/node"]["mode"] = 0o644
+    elif mutation == "missing":
+        del members["runtime/node/bin/node"]
+    elif mutation == "legacy":
+        metadata["schema"] = (
+            "abyss_machine_code_intelligence_python_provider_archive_v1"
+        )
+    else:
+        metadata["platform"] = "linux-aarch64"
+    metadata["files"] = provider._inventory(members)
+    members["provider.json"]["payload"] = json.dumps(metadata).encode()
+    path.write_bytes(provider._tar_bytes(members))
+    with pytest.raises(ValueError):
+        provider.read_python_provider_archive(path)
+
+
+def test_node_digest_is_checked_before_decompression(
+    prepared: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = prepared["args"]["node_distribution_path"]
+    path.write_bytes(b"untrusted bytes")
+    monkeypatch.setattr(
+        provider.gzip,
+        "GzipFile",
+        lambda **kwargs: pytest.fail("unbound archive must not be decoded"),
+    )
+    with pytest.raises(ValueError, match="distribution digest mismatch"):
+        provider._node_members(path, prepared["lock"])
+
+
+def test_node_expansion_and_executable_bounds_remain_enforced(
+    prepared: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    archive = tmp_path / "candidate.tar.gz"
+    build(prepared, archive)
+    with monkeypatch.context() as bounded:
+        bounded.setattr(provider, "MAX_NODE_BYTES", 4)
+        with pytest.raises(ValueError, match="expanded byte bound"):
+            provider.read_python_provider_archive(archive)
+    path = prepared["args"]["node_distribution_path"]
+    compressed = gzip.compress(b"\0" * 20000)
+    path.write_bytes(compressed)
+    prepared["lock"]["node_runtime"]["distribution_sha256"] = provider._digest(
+        compressed
+    )
+    monkeypatch.setattr(provider, "MAX_TOTAL_BYTES", 10000)
+    with pytest.raises(ValueError, match="Node distribution exceeds expansion bound"):
+        provider._node_members(path, prepared["lock"])
+
+
+def test_node_distribution_duplicate_executable_is_rejected(prepared: dict) -> None:
+    path = prepared["args"]["node_distribution_path"]
+    stream = io.BytesIO()
+    with tarfile.open(fileobj=stream, mode="w:gz") as archive:
+        for _ in range(2):
+            payload = b"synthetic Node, never execute"
+            info = tarfile.TarInfo("node-v22.23.1-linux-x64/bin/node")
+            info.mode, info.size = 0o755, len(payload)
+            archive.addfile(info, io.BytesIO(payload))
+    path.write_bytes(stream.getvalue())
+    prepared["lock"]["node_runtime"]["distribution_sha256"] = provider._digest(
+        stream.getvalue()
+    )
+    with pytest.raises(ValueError, match="duplicate Node"):
+        provider._node_members(path, prepared["lock"])
