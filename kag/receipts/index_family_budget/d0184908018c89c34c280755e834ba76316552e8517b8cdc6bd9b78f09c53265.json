@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 2688681,
+  "allowed_tracked_bytes": 30649099,
+  "approved_by": "repository-owner",
+  "base_ref": "049218e863bfed1301080ba1b2fdcfb0887858f8",
+  "changed_generated_bytes": 2688681,
+  "changed_generated_files": 26,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "d0184908018c89c34c280755e834ba76316552e8517b8cdc6bd9b78f09c53265",
+  "reason": "Canonical owner family reflects the reviewed shared provider preflight permission correction, native contract regressions and mechanic; generated parity remains mandatory.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 30649099,
+  "tracked_bytes_max": 27262976
+}
