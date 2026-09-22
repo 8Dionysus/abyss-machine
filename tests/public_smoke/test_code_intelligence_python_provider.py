@@ -7,6 +7,8 @@ import io
 import json
 import os
 from pathlib import Path
+import runpy
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -541,6 +543,248 @@ def install(case: dict, *, apply: bool = True) -> dict:
     )
 
 
+def verify_installed(case: dict) -> dict:
+    return installer.verify_python_provider_installation(
+        case["archive"],
+        case["bundle"],
+        **case["args"],
+        installer_source_root=case.get(
+            "historical_installer", installer.INSTALLER_ROOT
+        ),
+        expected_installer_source_ref=case.get("installer_ref", "commit:" + "b" * 40),
+    )
+
+
+@pytest.fixture
+def historical_placement(
+    install_case: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> dict:
+    """Three explicit source identities; none is real release/host evidence."""
+    case = install_case
+    case["first_install"] = install(case)
+    assert case["first_install"]["ok"]
+    case["historical_installer"] = installer.INSTALLER_ROOT
+    current = tmp_path / "new-verifier"
+    shutil.copytree(installer.INSTALLER_ROOT, current)
+    identities = {
+        ROOT: {"commit": "a" * 40, "tree": "d" * 40},
+        installer.INSTALLER_ROOT: {"commit": "b" * 40, "tree": "d" * 40},
+        current: {"commit": "e" * 40, "tree": "f" * 40},
+    }
+
+    def source_identity(root: Path, expected_ref: str | None = None) -> dict:
+        identity = identities[root]
+        if expected_ref is not None and expected_ref != "commit:" + identity["commit"]:
+            raise ValueError("source commit mismatch")
+        return dict(identity)
+
+    monkeypatch.setattr(installer, "INSTALLER_ROOT", current)
+    monkeypatch.setattr(installer, "_source_identity", source_identity)
+    return case
+
+
+def test_reverification_preserves_installer_but_uses_current_verifier(
+    historical_placement: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    case = historical_placement
+    first = case["first_install"]
+    marker = Path(first["target"]) / "installation.json"
+    before, inode = marker.read_bytes(), marker.stat().st_ino
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        pytest.fail("read-only verification cannot place, repair or execute")
+
+    for operation in ("_write_tree", "_rename_new", "run_owner_preflights"):
+        monkeypatch.setattr(installer, operation, forbidden)
+    monkeypatch.setattr(subprocess, "Popen", forbidden)
+    original_directory = installer._directory
+
+    def read_only_directory(path: Path, *, create: bool = False):
+        assert create is False
+        return original_directory(path)
+
+    monkeypatch.setattr(installer, "_directory", read_only_directory)
+    result = verify_installed(case)
+    assert result["ok"] and result["status"] == "verified_existing", result
+    assert result["installation"] == first["installation"]
+    assert result["installation_sha256"] == provider._digest(before)
+    assert result["producer_source"]["commit"] == "a" * 40
+    assert result["installer_source"]["commit"] == "b" * 40
+    assert result["verifier_source"]["commit"] == "e" * 40
+    assert result["written"] == [] and result["provider_executed"] is False
+    assert case["gate_calls"][-1]["record_id"] == first["installation"]["record_id"]
+    assert marker.read_bytes() == before and marker.stat().st_ino == inode
+    # The install command retains its stricter idempotence law. Verification
+    # does not reinterpret a new install request as the historical placement.
+    assert install(case, apply=False)["status"] == "blocked"
+
+
+def test_reverification_never_prepares_or_creates_missing_placement(
+    install_case: dict,
+) -> None:
+    result = verify_installed(install_case)
+    assert result["status"] == "blocked"
+    assert result["reason"] == "existing provider installation required"
+    assert result["written"] == [] and not install_case["runtime"].exists()
+    assert not install_case["preflight_calls"]
+
+
+@pytest.mark.parametrize("installer_ref", ["", "main", "commit:" + "a" * 40, None])
+def test_reverification_requires_exact_historical_installer(
+    historical_placement: dict, installer_ref: str | None
+) -> None:
+    historical_placement["installer_ref"] = installer_ref
+    result = verify_installed(historical_placement)
+    assert not result["ok"] and result["written"] == []
+
+
+@pytest.mark.parametrize("source", ["producer", "installer", "verifier"])
+def test_reverification_rechecks_each_source_identity(
+    historical_placement: dict, monkeypatch: pytest.MonkeyPatch, source: str
+) -> None:
+    case = historical_placement
+    selected = {
+        "producer": ROOT,
+        "installer": case["historical_installer"],
+        "verifier": installer.INSTALLER_ROOT,
+    }[source]
+    original = installer._source_identity
+    calls = 0
+
+    def changed(root: Path, expected_ref: str | None = None) -> dict:
+        nonlocal calls
+        identity = original(root, expected_ref)
+        if root == selected:
+            calls += 1
+            if calls > 1:
+                return {**identity, "tree": "0" * 40}
+        return identity
+
+    monkeypatch.setattr(installer, "_source_identity", changed)
+    result = verify_installed(case)
+    assert result["reason"] == "source identity changed during verification"
+    assert not result["ok"] and result["written"] == []
+
+
+@pytest.mark.parametrize("failure", ["deny", "different-latest", "different-record"])
+def test_reverification_requires_same_latest_allow_after_tree_check(
+    historical_placement: dict, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    original = installer._gate
+    calls = 0
+
+    def changed(*args: object, **kwargs: object) -> dict:
+        nonlocal calls
+        gate = original(*args, **kwargs)
+        calls += 1
+        if calls == 2:
+            if failure == "deny":
+                gate["verdict"] = "deny"
+            else:
+                gate["latest_record_id"] = "sha256:" + "0" * 64
+                if failure == "different-record":
+                    gate["record_id"] = gate["latest_record_id"]
+        return gate
+
+    monkeypatch.setattr(installer, "_gate", changed)
+    result = verify_installed(historical_placement)
+    assert not result["ok"] and result["written"] == []
+    assert "allow required" in result["reason"] or "record changed" in result["reason"]
+
+
+@pytest.mark.parametrize("historical", [False, True])
+@pytest.mark.parametrize("input_name", ["policy", "lock", "npm"])
+def test_reverification_checks_historical_and_current_consumption_law(
+    historical_placement: dict, historical: bool, input_name: str
+) -> None:
+    root = (
+        historical_placement["historical_installer"]
+        if historical
+        else installer.INSTALLER_ROOT
+    )
+    relative = {
+        "policy": "manifests/artifact_signature_policy.manifest.json",
+        "lock": "manifests/code_intelligence_python_provider.lock.json",
+        "npm": "mechanics/code-intelligence/parts/scip-python/package.json",
+    }[input_name]
+    value = json.loads((root / relative).read_text())
+    value["foreign"] = True
+    write_json(root / relative, value)
+    result = verify_installed(historical_placement)
+    assert not result["ok"] and result["written"] == []
+
+
+@pytest.mark.parametrize("failure", ["signature", "unknown", "manual_review_required"])
+def test_reverification_does_not_trust_installation_marker_as_admission(
+    historical_placement: dict, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    if failure == "signature":
+        monkeypatch.setattr(
+            artifact_bundles, "verify_bundle", lambda *a, **kw: {"ok": False}
+        )
+    else:
+        monkeypatch.setattr(
+            artifact_bundles,
+            "trust_gate",
+            lambda *a, **kw: {"ok": True, "verdict": failure},
+        )
+    result = verify_installed(historical_placement)
+    assert not result["ok"] and result["written"] == []
+
+
+def test_reverification_rechecks_tree_after_admission(
+    historical_placement: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    case = historical_placement
+    marker = Path(case["first_install"]["target"]) / "installation.json"
+    original = installer._gate
+    calls = 0
+
+    def drift(*args: object, **kwargs: object) -> dict:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            marker.write_bytes(b"{}")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(installer, "_gate", drift)
+    result = verify_installed(case)
+    assert not result["ok"] and result["written"] == []
+    assert marker.read_bytes() == b"{}"  # Detected, never repaired.
+
+
+def test_verify_installed_cli_has_no_apply_path(
+    historical_placement: dict, capsys: pytest.CaptureFixture[str]
+) -> None:
+    case = historical_placement
+    script = runpy.run_path(str(ROOT / "scripts/code_intelligence_python_provider.py"))
+    arguments = [
+        "verify-installed",
+        "--archive",
+        str(case["archive"]),
+        "--bundle-dir",
+        str(case["bundle"]),
+    ]
+    cli_names = {"expected_source_ref": "source-ref"}
+    for key, value in case["args"].items():
+        arguments.extend(["--" + cli_names.get(key, key.replace("_", "-")), str(value)])
+    arguments.extend(
+        [
+            "--installer-source-root",
+            str(case["historical_installer"]),
+            "--installer-source-ref",
+            "commit:" + "b" * 40,
+            "--json",
+        ]
+    )
+    assert script["main"](arguments) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "verified_existing"
+    with pytest.raises(SystemExit) as error:
+        script["main"]([*arguments, "--apply"])
+    assert error.value.code == 2
+    capsys.readouterr()
+
+
 def test_install_dry_run_then_verified_idempotence(
     install_case: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -647,6 +891,8 @@ def test_installed_drift_is_not_repaired_or_accepted(
     for apply in (False, True):
         result = install(install_case, apply=apply)
         assert result["status"] == "blocked" and result["written"] == []
+    result = verify_installed(install_case)
+    assert result["status"] == "blocked" and result["written"] == []
     assert len(install_case["preflight_calls"]) == 1
 
 

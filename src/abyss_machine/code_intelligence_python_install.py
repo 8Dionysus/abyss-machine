@@ -294,6 +294,187 @@ def _require_allow(gate: dict) -> None:
         raise ValueError("exact latest runtime allow required")
 
 
+def _require_consumer_inputs(archive: dict, root: Path) -> None:
+    lock = archive_tools._object(
+        archive_tools._read_bounded(
+            root / "manifests/code_intelligence_python_provider.lock.json",
+            archive_tools.MAX_CONTROL_BYTES,
+        )
+    )
+    if _canonical_json(lock) != _canonical_json(archive["lock"]):
+        raise ValueError("provider lock differs from current consumer contract")
+    inputs = root / "mechanics/code-intelligence/parts/scip-python"
+    for name in ("package.json", "package-lock.json"):
+        expected = archive_tools._object(
+            archive_tools._read_bounded(inputs / name, archive_tools.MAX_CONTROL_BYTES)
+        )
+        actual = archive_tools._object(archive["members"]["runtime/" + name]["payload"])
+        if _canonical_json(expected) != _canonical_json(actual):
+            raise ValueError("provider inputs differ from current consumer contract")
+
+
+def _admitted_archive(
+    archive_path: str | Path,
+    bundle_dir: str | Path,
+    *,
+    subject_root: str | Path,
+    registry_dir: str | Path,
+    producer: Path,
+    expected_source_ref: str,
+    result: dict,
+) -> tuple[dict, dict, dict]:
+    """Shared current-consumer checks; an old root never selects old policy."""
+    if _consumption_contract(producer) != _consumption_contract(INSTALLER_ROOT):
+        raise ValueError("producer and current consumer artifact policy differ")
+    archive = archive_tools.read_python_provider_archive(archive_path)
+    if (
+        archive["metadata"]["platform"] != "linux-x86_64"
+        or os.uname().machine != "x86_64"
+    ):
+        raise ValueError("supported Linux x86_64 provider platform required")
+    # Verify the producer ABI at its exact clean checkout, while independently
+    # constraining consumption with the currently executing owner's inputs.
+    _require_consumer_inputs(archive, INSTALLER_ROOT)
+    binding = _subject_binding(
+        archive,
+        Path(bundle_dir).resolve(),
+        subject_root=Path(subject_root).resolve(),
+        source_root=producer,
+    )
+    result["subject_binding"] = binding
+    if binding["ok"] is not True or binding["source_ref"] != expected_source_ref:
+        raise ValueError("exact Python archive and source binding required")
+    verification = artifact_bundles.verify_bundle(
+        Path(bundle_dir).resolve(),
+        subject_root=Path(subject_root).resolve(),
+        repo_root=producer,
+        write=False,
+    )
+    result["bundle_verify"] = _summarize_verify(verification)
+    if verification.get("ok") is not True:
+        raise ValueError("producer bundle verification failed")
+    gate = _gate(binding, Path(registry_dir).resolve())
+    result["trust_gate"] = gate
+    _require_allow(gate)
+    return archive, binding, gate
+
+
+def _installation_identity(
+    archive: dict,
+    binding: dict,
+    gate: dict,
+    producer_identity: dict,
+    installer_identity: dict,
+) -> dict:
+    lock = archive["lock"]
+    return {
+        "schema": INSTALLATION_SCHEMA,
+        "provider_id": archive_tools.PROVIDER_ID,
+        "archive_sha256": archive["archive_sha256"],
+        "aggregate_digest": binding["subject_digest"],
+        "source_ref": binding["source_ref"],
+        "record_id": gate["record_id"],
+        "producer_source": producer_identity,
+        "installer_source": installer_identity,
+        "entrypoint": "runtime/" + lock["distribution"]["entrypoint"],
+        "node_minimum": lock["build"]["node_minimum"],
+        "node_binding": "bundled-exact-archive",
+        "node_runtime": archive["metadata"]["node_runtime"],
+    }
+
+
+def verify_python_provider_installation(
+    archive_path: str | Path,
+    bundle_dir: str | Path,
+    *,
+    subject_root: str | Path,
+    registry_dir: str | Path,
+    producer_source_root: str | Path,
+    expected_source_ref: str,
+    installer_source_root: str | Path,
+    expected_installer_source_ref: str,
+    runtime_root: str | Path = DEFAULT_RUNTIME_ROOT,
+) -> dict[str, Any]:
+    """Reverify an existing placement without becoming its historical installer.
+
+    This is a point-in-time byte/admission check, not an immutable launch
+    capability or independent proof that the recorded installer executed.
+    """
+    result: dict[str, Any] = {
+        "schema": "abyss_machine_code_intelligence_python_install_verification_v1",
+        "ok": False,
+        "status": "blocked",
+        "provider_executed": False,
+        "written": [],
+        "claim_limit": "Point-in-time admitted placement check only; recorded installer identity is preserved, not execution-attested. No immutable launch capability, signed session gate, provider health, STACK lifecycle or semantic proof.",
+    }
+    try:
+        if not re.fullmatch(r"commit:[0-9a-f]{40}", expected_installer_source_ref):
+            raise ValueError("exact historical installer commit required")
+        producer = Path(producer_source_root).resolve(strict=True)
+        historical_installer = Path(installer_source_root).resolve(strict=True)
+        producer_identity = _source_identity(producer, expected_source_ref)
+        installer_identity = _source_identity(
+            historical_installer, expected_installer_source_ref
+        )
+        verifier_identity = _source_identity(INSTALLER_ROOT)
+        result.update(
+            producer_source=producer_identity,
+            installer_source=installer_identity,
+            verifier_source=verifier_identity,
+        )
+        archive, binding, gate = _admitted_archive(
+            archive_path,
+            bundle_dir,
+            subject_root=subject_root,
+            registry_dir=registry_dir,
+            producer=producer,
+            expected_source_ref=expected_source_ref,
+            result=result,
+        )
+        if _consumption_contract(historical_installer) != _consumption_contract(
+            INSTALLER_ROOT
+        ):
+            raise ValueError("historical installer and current consumer policy differ")
+        _require_consumer_inputs(archive, historical_installer)
+        identity = _installation_identity(
+            archive, binding, gate, producer_identity, installer_identity
+        )
+        members = _expected_members(archive, identity)
+        parent = Path(runtime_root) / "providers" / archive_tools.PROVIDER_ID
+        name = archive["archive_sha256"].removeprefix("sha256:")
+        result["target"] = str(parent / name)
+        if not _verify_existing(parent, name, members):
+            raise ValueError("existing provider installation required")
+        if (
+            _source_identity(producer, expected_source_ref) != producer_identity
+            or _source_identity(historical_installer, expected_installer_source_ref)
+            != installer_identity
+            or _source_identity(INSTALLER_ROOT) != verifier_identity
+        ):
+            raise ValueError("source identity changed during verification")
+        final_gate = _gate(binding, Path(registry_dir).resolve(), gate["record_id"])
+        result["trust_gate"] = final_gate
+        _require_allow(final_gate)
+        if final_gate["record_id"] != gate["record_id"]:
+            raise ValueError("admission record changed during verification")
+        # Check again after source/admission revalidation, without repairing or
+        # resolving through links. This still cannot freeze a mutable host tree.
+        if not _verify_existing(parent, name, members):
+            raise ValueError("provider installation disappeared during verification")
+        result.update(
+            ok=True,
+            status="verified_existing",
+            installation=identity,
+            installation_sha256=archive_tools._digest(
+                _canonical_json(identity) + b"\n"
+            ),
+        )
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+        result.update(reason=str(exc), error_type=type(exc).__name__)
+    return result
+
+
 def install_python_provider_artifact(
     archive_path: str | Path,
     bundle_dir: str | Path,
@@ -320,75 +501,19 @@ def install_python_provider_artifact(
         installer_identity = _source_identity(INSTALLER_ROOT)
         result["producer_source"] = producer_identity
         result["installer_source"] = installer_identity
-        if _consumption_contract(producer) != _consumption_contract(INSTALLER_ROOT):
-            raise ValueError("producer and current consumer artifact policy differ")
-        archive = archive_tools.read_python_provider_archive(archive_path)
-        if (
-            archive["metadata"]["platform"] != "linux-x86_64"
-            or os.uname().machine != "x86_64"
-        ):
-            raise ValueError("supported Linux x86_64 provider platform required")
-        # Old producer ABI is checked against its exact clean checkout; current
-        # consumer inputs and policy independently constrain consumption.
-        lock = archive_tools._object(
-            archive_tools._read_bounded(
-                INSTALLER_ROOT
-                / "manifests/code_intelligence_python_provider.lock.json",
-                archive_tools.MAX_CONTROL_BYTES,
-            )
+        archive, binding, gate = _admitted_archive(
+            archive_path,
+            bundle_dir,
+            subject_root=subject_root,
+            registry_dir=registry_dir,
+            producer=producer,
+            expected_source_ref=expected_source_ref,
+            result=result,
         )
-        if _canonical_json(lock) != _canonical_json(archive["lock"]):
-            raise ValueError("provider lock differs from current consumer contract")
-        inputs = INSTALLER_ROOT / "mechanics/code-intelligence/parts/scip-python"
-        for name in ("package.json", "package-lock.json"):
-            expected = archive_tools._object(
-                archive_tools._read_bounded(
-                    inputs / name, archive_tools.MAX_CONTROL_BYTES
-                )
-            )
-            actual = archive_tools._object(
-                archive["members"]["runtime/" + name]["payload"]
-            )
-            if _canonical_json(expected) != _canonical_json(actual):
-                raise ValueError(
-                    "provider inputs differ from current consumer contract"
-                )
-        binding = _subject_binding(
-            archive,
-            Path(bundle_dir).resolve(),
-            subject_root=Path(subject_root).resolve(),
-            source_root=producer,
-        )
-        result["subject_binding"] = binding
-        if binding["ok"] is not True or binding["source_ref"] != expected_source_ref:
-            raise ValueError("exact Python archive and source binding required")
-        verification = artifact_bundles.verify_bundle(
-            Path(bundle_dir).resolve(),
-            subject_root=Path(subject_root).resolve(),
-            repo_root=producer,
-            write=False,
-        )
-        result["bundle_verify"] = _summarize_verify(verification)
-        if verification.get("ok") is not True:
-            raise ValueError("producer bundle verification failed")
         registry = Path(registry_dir).resolve()
-        gate = _gate(binding, registry)
-        result["trust_gate"] = gate
-        _require_allow(gate)
-        identity = {
-            "schema": INSTALLATION_SCHEMA,
-            "provider_id": archive_tools.PROVIDER_ID,
-            "archive_sha256": archive["archive_sha256"],
-            "aggregate_digest": binding["subject_digest"],
-            "source_ref": expected_source_ref,
-            "record_id": gate["record_id"],
-            "producer_source": producer_identity,
-            "installer_source": installer_identity,
-            "entrypoint": "runtime/" + lock["distribution"]["entrypoint"],
-            "node_minimum": lock["build"]["node_minimum"],
-            "node_binding": "bundled-exact-archive",
-            "node_runtime": archive["metadata"]["node_runtime"],
-        }
+        identity = _installation_identity(
+            archive, binding, gate, producer_identity, installer_identity
+        )
         members = _expected_members(archive, identity)
         parent_path = Path(runtime_root) / "providers" / archive_tools.PROVIDER_ID
         target_name = archive["archive_sha256"].removeprefix("sha256:")
