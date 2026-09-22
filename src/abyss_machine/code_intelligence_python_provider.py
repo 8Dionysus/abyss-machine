@@ -7,6 +7,7 @@ import gzip
 import hashlib
 import io
 import json
+import math
 import os
 from pathlib import Path, PurePosixPath
 import posixpath
@@ -44,6 +45,9 @@ def _digest(payload: bytes) -> str:
 
 
 def _object(payload: bytes) -> dict[str, Any]:
+    if len(payload) > MAX_CONTROL_BYTES:
+        raise ValueError("provider JSON exceeds control byte bound")
+
     def unique(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
         result: dict[str, Any] = {}
         for key, value in pairs:
@@ -55,9 +59,21 @@ def _object(payload: bytes) -> dict[str, Any]:
     def invalid_constant(value: str) -> Any:
         raise ValueError(f"non-JSON constant: {value}")
 
-    result = json.loads(
-        payload, object_pairs_hook=unique, parse_constant=invalid_constant
-    )
+    def finite_float(value: str) -> float:
+        number = float(value)
+        if not math.isfinite(number):
+            raise ValueError("non-finite provider JSON number")
+        return number
+
+    try:
+        result = json.loads(
+            payload,
+            object_pairs_hook=unique,
+            parse_constant=invalid_constant,
+            parse_float=finite_float,
+        )
+    except RecursionError as exc:
+        raise ValueError("provider JSON exceeds nesting bound") from exc
     if not isinstance(result, dict):
         raise ValueError("JSON object required")
     return result
