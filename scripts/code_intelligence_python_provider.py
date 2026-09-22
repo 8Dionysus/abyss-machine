@@ -28,6 +28,9 @@ def main(argv: list[str] | None = None) -> int:
         "--runtime", required=True, help="prepared script-free npm-ci prefix"
     )
     build.add_argument("--output", required=True)
+    build.add_argument(
+        "--node-distribution", required=True, help="supplied pinned Node release tar.gz"
+    )
     build.add_argument("--source-ref", required=True)
     build.add_argument("--platform", default="linux-x86_64")
     build.add_argument(
@@ -86,6 +89,7 @@ def main(argv: list[str] | None = None) -> int:
                 lock_path=args.lock,
                 package_manifest_path=inputs / "package.json",
                 package_lock_path=inputs / "package-lock.json",
+                node_distribution_path=args.node_distribution,
                 source_ref=args.source_ref,
                 platform=args.platform,
             )

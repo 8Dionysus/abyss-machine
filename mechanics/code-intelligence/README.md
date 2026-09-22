@@ -5,11 +5,12 @@
 The additive [SCIP Python candidate route](PYTHON_PROVIDER.md) supplies an
 independently locked, non-executing archive builder, exact-bundle inspector and
 explicit no-replacement installer with full installed-byte verification.
-It does not replace the TypeScript realization or establish a LIVE session,
-Node runtime identity or semantic verdict.
+Its v2 archive binds an exact bundled Node executable and license. It does not
+replace the TypeScript realization or establish a LIVE session, host ABI
+compatibility, provider health or semantic verdict.
 
 This package gives the host layer one aggregate, content-addressed provider
-plane: Universal Ctags; exact Node runtimes for Tree-sitter, SCIP, and LSP;
+plane: Universal Ctags; npm providers for Tree-sitter, SCIP, and LSP;
 and adjacent Semgrep, Syft, in-toto, and MarkItDown routes. The aggregate is a
 dedicated artifact class so its registry latest cannot replace unrelated host
 runtime bundles.
