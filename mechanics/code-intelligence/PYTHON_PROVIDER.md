@@ -147,6 +147,36 @@ against the admitted archive, not trust the
 mutable local JSON alone. This protects placement under a trusted host owner;
 it is not a sandbox against a hostile privileged or same-UID process.
 
+## Read-only re-verification from newer owner source
+
+`scripts/code_intelligence_python_provider.py verify-installed` is the separate
+consumer check for an existing placement. Supply all of `install`'s explicit
+artifact/producer arguments, plus `--installer-source-root` and an exact
+`--installer-source-ref commit:...` for the historical installer. The producer,
+historical installer and currently executing verifier must all be clean exact
+Git roots. The historical installer must match the supplied commit; its policy
+and lock/npm inputs must remain compatible with the current consumer's law.
+The historical checkout never selects the verifier's policy or gate code.
+
+The verifier reconstructs the v2 installation record from those pinned inputs
+and the exact latest admitted artifact, then compares the entire installed tree,
+including that record, every byte, mode, link and path. It rechecks all three
+source identities, the same latest admission record, and the tree before
+success. Its output keeps `producer_source`, `installer_source` and
+`verifier_source` distinct, and binds the exact local record bytes through
+`installation_sha256`. A different verifier commit need not pretend it performed
+the original installation. A different historical installer or registry identity
+still fails; this command performs no migration or repair.
+
+There is no `--apply` option. Missing placement is blocked, never considered
+ready to install. No directories, markers, pointers, keys, signatures or provider
+processes are created. The result is a point-in-time **admitted placement check**,
+not an immutable launch capability, signed session gate, execution attestation
+of the historical installer, health probe or semantic verdict. STACK still
+needs an exact runtime/input capture and its own lifecycle boundary before
+execution. This check lets a new owner implementation consume the verified old
+placement without rewriting its provenance.
+
 ## Signed production route
 
 The existing manual `Artifact Production Evidence` workflow, selected with
