@@ -112,6 +112,7 @@ def test_public_lock_is_complete_but_not_admission() -> None:
 @pytest.mark.parametrize(
     "payload",
     [b'{"x":1e999}', b'{"x":NaN}', b'{"x":' + b"[" * 2000 + b"0" + b"]" * 2000 + b"}"],
+    ids=["overflow", "nan", "nesting"],
 )
 def test_provider_json_rejects_nonfinite_or_deep_input(payload: bytes) -> None:
     with pytest.raises(ValueError):
@@ -124,6 +125,11 @@ def test_all_json_inputs_obey_the_control_bound(
     monkeypatch.setattr(provider, "MAX_CONTROL_BYTES", 4)
     with pytest.raises(ValueError, match="control byte bound"):
         provider._object(b'{"x":0}')
+
+
+def test_json_nesting_guard_preserves_quoted_and_escaped_text() -> None:
+    document = {"text": '\\"' + "[{" * 1000 + '"\\'}
+    assert provider._object(json.dumps(document).encode()) == document
 
 
 def test_deterministic_archive_never_executes_or_replaces(

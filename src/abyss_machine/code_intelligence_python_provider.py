@@ -34,6 +34,7 @@ MAX_FILES = 12000
 MAX_MEMBER_BYTES = 64 * 1024 * 1024
 MAX_TOTAL_BYTES = 256 * 1024 * 1024
 MAX_CONTROL_BYTES = 4 * 1024 * 1024
+MAX_JSON_DEPTH = 64
 CONTROLS = {"provider.json", "provider-lock.json"}
 PACKAGE_PATH = re.compile(
     r"node_modules/(?:@[a-z0-9._-]+/)?[a-z0-9._-]+(?:/node_modules/(?:@[a-z0-9._-]+/)?[a-z0-9._-]+)*"
@@ -47,6 +48,26 @@ def _digest(payload: bytes) -> str:
 def _object(payload: bytes) -> dict[str, Any]:
     if len(payload) > MAX_CONTROL_BYTES:
         raise ValueError("provider JSON exceeds control byte bound")
+    # Bound nesting before allocation, independently of Python's decoder limit.
+    text = payload.decode("utf-8")
+    depth = 0
+    quoted = escaped = False
+    for character in text:
+        if quoted:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                quoted = False
+        elif character == '"':
+            quoted = True
+        elif character in "[{":
+            depth += 1
+            if depth > MAX_JSON_DEPTH:
+                raise ValueError("provider JSON exceeds nesting bound")
+        elif character in "]}":
+            depth -= 1
 
     def unique(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
         result: dict[str, Any] = {}
@@ -67,7 +88,7 @@ def _object(payload: bytes) -> dict[str, Any]:
 
     try:
         result = json.loads(
-            payload,
+            text,
             object_pairs_hook=unique,
             parse_constant=invalid_constant,
             parse_float=finite_float,
