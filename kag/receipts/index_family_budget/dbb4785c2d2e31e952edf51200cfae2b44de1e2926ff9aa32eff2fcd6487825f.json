@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 6939358,
+  "allowed_tracked_bytes": 30630830,
+  "approved_by": "repository-owner",
+  "base_ref": "22df9f548112255a88ec700670e46a68a7cfe453",
+  "changed_generated_bytes": 6939358,
+  "changed_generated_files": 75,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "dbb4785c2d2e31e952edf51200cfae2b44de1e2926ff9aa32eff2fcd6487825f",
+  "reason": "Canonical owner family reflects the bounded Python installer, exact current-consumer policy binding, placement tests and mechanic; authored scope and generated parity reviewed for this candidate.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 30630830,
+  "tracked_bytes_max": 27262976
+}
