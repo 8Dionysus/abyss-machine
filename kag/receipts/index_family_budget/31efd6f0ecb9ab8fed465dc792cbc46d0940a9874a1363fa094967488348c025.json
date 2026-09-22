@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 5988306,
+  "allowed_tracked_bytes": 30715393,
+  "approved_by": "repository-owner",
+  "base_ref": "5b7d20080db6f71cb5065087a2a9d24ac2a366df",
+  "changed_generated_bytes": 5988306,
+  "changed_generated_files": 68,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "31efd6f0ecb9ab8fed465dc792cbc46d0940a9874a1363fa094967488348c025",
+  "reason": "Reviewed bounded additive read-only Python installation verifier, shared current admission checks, explicit historical installer binding and owner tests/docs; regenerate only corresponding source-linked portable family with unchanged budget limits.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 30715393,
+  "tracked_bytes_max": 27262976
+}
