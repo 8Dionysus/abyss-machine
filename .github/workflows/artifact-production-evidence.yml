@@ -133,6 +133,12 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Setup pinned provider build Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: "22.23.1"
+          package-manager-cache: false
+
       - name: Install validator dependencies
         run: python -m pip install -e '.[dev]'
 
@@ -143,6 +149,32 @@ jobs:
 
       - name: Run release artifact gate
         run: python scripts/ci_gate.py --mode release-artifact
+
+      - name: Build deterministic SCIP Python archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(node --version)" = "v22.23.1"
+          test "$(npm --version)" = "10.9.8"
+          artifact_root="${GITHUB_WORKSPACE}/dist/code-intelligence"
+          mkdir -p "${artifact_root}"
+          python_prefix="$(mktemp -d "${RUNNER_TEMP}/scip-python.XXXXXX")"
+          repeat_root="$(mktemp -d "${RUNNER_TEMP}/scip-python-repeat.XXXXXX")"
+          touch "${repeat_root}/user.npmrc" "${repeat_root}/global.npmrc"
+          cp mechanics/code-intelligence/parts/scip-python/package.json \
+            mechanics/code-intelligence/parts/scip-python/package-lock.json "${python_prefix}/"
+          npm ci --prefix "${python_prefix}" --ignore-scripts --no-audit --no-fund \
+            --userconfig "${repeat_root}/user.npmrc" --globalconfig "${repeat_root}/global.npmrc" \
+            --cache "${RUNNER_TEMP}/npm-cache"
+          python_artifact="${artifact_root}/abyss-machine-code-intelligence-python-provider-${GITHUB_SHA}.tar.gz"
+          python scripts/code_intelligence_python_provider.py build \
+            --runtime "${python_prefix}" --output "${python_artifact}" \
+            --artifact-root "${artifact_root}" --source-ref "commit:${GITHUB_SHA}" --json
+          python scripts/code_intelligence_python_provider.py build \
+            --runtime "${python_prefix}" --output "${repeat_root}/repeat.tar.gz" \
+            --artifact-root "${repeat_root}" --source-ref "commit:${GITHUB_SHA}" --json
+          cmp -- "${python_artifact}" "${repeat_root}/repeat.tar.gz"
+          sha256sum "${python_artifact}" > "${python_artifact}.sha256"
 
       - name: Build Universal Ctags 6.2.1
         shell: bash
