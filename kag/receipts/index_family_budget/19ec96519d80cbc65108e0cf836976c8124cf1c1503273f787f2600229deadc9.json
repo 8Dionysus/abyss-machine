@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 4426007,
+  "allowed_tracked_bytes": 30757310,
+  "approved_by": "repository-owner",
+  "base_ref": "5ba91785b85161036800652fd6bcc2f918696b6d",
+  "changed_generated_bytes": 4426007,
+  "changed_generated_files": 48,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "19ec96519d80cbc65108e0cf836976c8124cf1c1503273f787f2600229deadc9",
+  "reason": "Regenerate the portable family for the Btrfs allocation-health and independent ENOSPC reporting implementation in this candidate; keep the standing family cap and one-megabyte delta limit unchanged, with no KAG authority or schema change.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 30757310,
+  "tracked_bytes_max": 27262976
+}

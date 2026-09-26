@@ -361,7 +361,8 @@ def test_storage_capacity_timer_is_independent_and_capacity_only() -> None:
     ]
     assert "ExecStartPre=" not in service
     assert "TimeoutStartSec=30s" in service
-    assert "StandardOutput=truncate:{{ABYSS_MACHINE_STATE}}/storage/capacity-latest.json" in service
+    assert "StandardOutput=null" in service
+    assert "StandardOutput=truncate:" not in service
     forbidden = ("resource launch", "monitor", "inventory", "candidate", "deep", "cleanup", "lifecycle", "reap")
     service_lower = service.lower()
     assert all(token not in service_lower for token in forbidden)

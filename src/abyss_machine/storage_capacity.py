@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
 from typing import Sequence
 
-from . import storage_forecast
+from . import storage_forecast, storage_health
 from .path_policy import DEFAULT_PATH_POLICY
 
 
@@ -128,13 +129,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 1
     document = capacity_observation()
+    runtime = Path(os.environ.get("ABYSS_MACHINE_RUN_ROOT", f"/run/user/{os.getuid()}/abyss-machine")) / "storage-health"
+    emergency = DEFAULT_PATH_POLICY.storage_root / "abyss-machine" / "storage-health"
+    document["health"] = storage_health.publish(document, runtime_root=runtime, emergency_root=emergency)
+    try:
+        storage_health.atomic_json(CAPACITY_STATE_PATH.parents[1] / "capacity-latest.json", document)
+    except OSError as exc:
+        document.update(ok=False, error=str(exc)[:300], errno=exc.errno)
+        document["health"] = storage_health.publish(document, runtime_root=runtime, emergency_root=emergency)
     if generation_guard.get("checked"):
         document["code_generation_guard"] = generation_guard
     if args.json:
         print(json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True))
     else:
         _print_text(document)
-    return 0 if document.get("ok") else 1
+    return 0 if document.get("ok") and document.get("health", {}).get("severity") != "critical" else 1
 
 
 if __name__ == "__main__":
