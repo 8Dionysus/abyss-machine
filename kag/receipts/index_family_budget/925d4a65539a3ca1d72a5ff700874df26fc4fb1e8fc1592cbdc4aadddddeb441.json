@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 26397406,
+  "allowed_tracked_bytes": 30788823,
+  "approved_by": "repository-owner",
+  "base_ref": "6de767e1d0534f2ef63110285d369dce1720987c",
+  "changed_generated_bytes": 26397406,
+  "changed_generated_files": 333,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "925d4a65539a3ca1d72a5ff700874df26fc4fb1e8fc1592cbdc4aadddddeb441",
+  "reason": "PR #426 adds owner source surfaces for bounded storage-candidate history and light refresh; this digest-scoped receipt accepts the generated family only after same-candidate incremental/full parity and the canonical owner-family contract gate.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 30788823,
+  "tracked_bytes_max": 27262976
+}
