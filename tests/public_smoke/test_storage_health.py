@@ -87,5 +87,5 @@ def test_warning_does_not_claim_a_write_has_already_failed(monkeypatch,tmp_path)
     calls=[]
     monkeypatch.setattr(health.subprocess,'run',lambda args,**kwargs:calls.append(args))
     health.publish({'ok':True,'roots':[{'path':'/','filesystem_health':{'status':'critical','reason':'btrfs_allocation_headroom_low'}}]},runtime_root=tmp_path/'run',emergency_root=tmp_path/'independent')
-    assert calls[0][-2]=='Заканчивается место для служебных данных'
-    assert 'скоро могут возникнуть' in calls[0][-1]
+    assert calls[0][-2]=='Недостаточно резерва файловой системы'
+    assert calls[0][-1]=='Под угрозой сохранение данных на разделе /.'

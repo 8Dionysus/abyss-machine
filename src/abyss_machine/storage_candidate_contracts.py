@@ -843,36 +843,103 @@ def candidates_document(
 
 
 def candidate_history_event(document: Mapping[str, Any]) -> dict[str, Any]:
-    candidates = _list_of_mappings(document.get("candidates"))
+    raw_candidates = document.get("candidates")
+    candidates = raw_candidates if isinstance(raw_candidates, Sequence) and not isinstance(raw_candidates, (str, bytes, bytearray)) else ()
+    raw_coverage = document.get("coverage")
+    coverage = raw_coverage if isinstance(raw_coverage, Mapping) else {}
+    deep = document.get("deep") is True
+    complete = deep and coverage.get("complete") is True and document.get("partial") is not True
+    if complete:
+        event_mode = "deep_snapshot"
+    elif deep:
+        event_mode = "deep_delta"
+    else:
+        event_mode = "light_summary"
+
+    # Partial deep refreshes used to append every carried-forward candidate on
+    # every timer tick.  The latest document remains the full read model; the
+    # append-only history keeps only this invocation's new observations.
+    observations: list[dict[str, Any]] = []
+    candidate_count = 0
+    observed_ids: set[str] = set()
+    for item in candidates:
+        if not isinstance(item, Mapping):
+            continue
+        candidate_count += 1
+        if not deep or (not complete and item.get("observation_status") != "current_deep"):
+            continue
+        candidate_id = str(item.get("candidate_id") or "")
+        if candidate_id:
+            observed_ids.add(candidate_id)
+        fingerprint = _mapping(item.get("fingerprint"))
+        observations.append({
+            "candidate_id": item.get("candidate_id"),
+            "path": item.get("path"),
+            "owner": item.get("owner"),
+            "kind": item.get("kind"),
+            "verdict": item.get("verdict"),
+            "physical_bytes": item.get("physical_bytes"),
+            "size_basis": item.get("size_basis", "physical_allocated_bytes"),
+            "reclaimable_bytes": item.get("reclaimable_bytes"),
+            "fingerprint_digest": fingerprint.get("digest"),
+            "fingerprint_complete": fingerprint.get("complete") is True,
+            "blockers": [
+                str(blocker.get("code"))
+                for blocker in item.get("blockers", [])
+                if isinstance(blocker, Mapping) and blocker.get("code")
+            ] if isinstance(item.get("blockers"), Sequence) and not isinstance(item.get("blockers"), (str, bytes, bytearray)) else [],
+        })
+
+    # Keep owner evidence in latest.json.  Repeated history rows need counts
+    # and navigation, not another copy of large diagnostic arrays.
+    coverage_fields = (
+        "mode", "discovered", "observed", "current_results", "carried_forward_count",
+        "partial", "complete", "adapter_count", "physical_measured", "physical_unknown",
+        "fingerprint_complete", "fingerprint_incomplete", "evidence_complete",
+        "evidence_incomplete", "runtime_error_count", "pressure_finding_count",
+    )
+    coverage_summary = {key: coverage[key] for key in coverage_fields if key in coverage}
+    runtime_errors = document.get("runtime_errors")
+    error_surfaces: dict[str, int] = {}
+    if isinstance(runtime_errors, Sequence) and not isinstance(runtime_errors, (str, bytes, bytearray)):
+        for error in runtime_errors:
+            if isinstance(error, Mapping):
+                surface = str(error.get("surface") or "unknown")
+                error_surfaces[surface] = error_surfaces.get(surface, 0) + 1
+
+    raw_changes = document.get("changes")
+    changes = [
+        dict(item)
+        for item in raw_changes
+        if isinstance(item, Mapping) and (complete or str(item.get("candidate_id") or "") in observed_ids)
+    ] if isinstance(raw_changes, Sequence) and not isinstance(raw_changes, (str, bytes, bytearray)) else []
+    summary = document.get("summary")
+    progress = document.get("deep_progress")
+    progress_summary = {
+        key: progress[key]
+        for key in ("status", "total", "cursor", "processed", "processed_this_run", "remaining", "continuation_required", "last_run_at")
+        if isinstance(progress, Mapping) and key in progress
+    }
     return {
-        "schema": "abyss_machine_storage_candidate_history_event_v1",
+        "schema": "abyss_machine_storage_candidate_history_event_v2",
+        "event_mode": event_mode,
         "version": document.get("version"),
         "generated_at": document.get("generated_at"),
-        "deep": document.get("deep") is True,
+        "deep": deep,
+        "complete": complete,
         "last_deep_at": document.get("last_deep_at"),
         "freshness": document.get("freshness"),
-        "coverage": document.get("coverage"),
-        "runtime_errors": document.get("runtime_errors", []),
-        "pressure_findings": document.get("pressure_findings", []),
+        "coverage": coverage_summary,
+        "runtime_error_count": coverage.get("runtime_error_count", len(runtime_errors) if isinstance(runtime_errors, Sequence) else 0),
+        "runtime_errors_by_surface": error_surfaces,
+        "pressure_finding_count": coverage.get("pressure_finding_count"),
         "snapshot_id": document.get("snapshot_id"),
-        "summary": document.get("summary"),
-        "changes": document.get("changes"),
-        "observations": [
-            {
-                "candidate_id": item.get("candidate_id"),
-                "path": item.get("path"),
-                "owner": item.get("owner"),
-                "kind": item.get("kind"),
-                "verdict": item.get("verdict"),
-                "physical_bytes": item.get("physical_bytes"),
-                "size_basis": item.get("size_basis", "physical_allocated_bytes"),
-                "reclaimable_bytes": item.get("reclaimable_bytes"),
-                "fingerprint_digest": _mapping(item.get("fingerprint")).get("digest"),
-                "fingerprint_complete": _mapping(item.get("fingerprint")).get("complete") is True,
-                "blockers": [blocker.get("code") for blocker in _list_of_mappings(item.get("blockers"))],
-            }
-            for item in candidates
-        ] if document.get("deep") is True else [],
+        "summary": dict(summary) if isinstance(summary, Mapping) else summary,
+        "deep_progress": progress_summary,
+        "changes": changes,
+        "observation_count": len(observations),
+        "omitted_observation_count": max(0, candidate_count - len(observations)),
+        "observations": observations,
         "full_evidence_path": _mapping(document.get("paths")).get("latest"),
     }
 

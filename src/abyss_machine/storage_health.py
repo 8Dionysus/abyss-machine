@@ -142,9 +142,8 @@ def publish(document: dict, *, runtime_root: Path, emergency_root: Path,
                 title = "Не удаётся сохранить данные"
                 body = "Не удалось записать состояние контроля диска. Файловая система сообщает об отказе записи."
             elif any(x["reason"] == "btrfs_allocation_headroom_low" for x in issues):
-                title = "Заканчивается место для служебных данных"
-                paths = ", ".join(str(x["path"]) for x in issues if x.get("path") and x["reason"] == "btrfs_allocation_headroom_low")
-                body = f"Раздел {paths}: скоро могут возникнуть ошибки сохранения, хотя свободное место для файлов ещё есть."
+                title = "Недостаточно резерва файловой системы"
+                body = "Под угрозой сохранение данных на разделе /."
             else:
                 title = "Не удалось проверить состояние диска"
                 body = "Контроль диска завершился с ошибкой. Сведения о возможности сохранения данных могут быть неполными."
