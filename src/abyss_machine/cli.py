@@ -9315,7 +9315,10 @@ def storage_monitor(
     candidates = storage_candidates_refresh(
         deep=False,
         artifact_snapshot=artifact_snapshot,
-        write_latest=write_latest,
+        # The monitor consumes only this projection's summary/freshness.  Do
+        # not rewrite the full candidate read model (which can be hundreds of
+        # MiB) merely to embed a compact status in the monitor document.
+        write_latest=False,
     )
     step_summary(
         "candidates_light",
@@ -16540,7 +16543,17 @@ def storage_candidate_light_refresh(previous: dict[str, Any], generated_at: str)
         if isinstance(document.get("summary"), dict):
             document["summary"]["retired"] = len(document.get("retired", [])) if isinstance(document.get("retired"), list) else 0
         return document
-    document = json.loads(json.dumps(previous))
+    # A light refresh changes only the top-level projection, its summary and
+    # its policy.  Keep the large candidate inventory shared and copy only the
+    # two nested mappings that are mutated below; round-tripping through JSON
+    # needlessly held two complete multi-hundred-megabyte snapshots in RAM.
+    document = dict(previous)
+    prior_summary = previous.get("summary")
+    if isinstance(prior_summary, Mapping):
+        document["summary"] = dict(prior_summary)
+    prior_policy = previous.get("policy")
+    if isinstance(prior_policy, Mapping):
+        document["policy"] = dict(prior_policy)
     # A light snapshot timestamp is not deep evidence freshness.  Keep the
     # age unknown when older state never recorded a deep timestamp.
     prior_last_deep_at = _storage_candidate_previous_last_deep_at(previous)
@@ -17182,6 +17195,7 @@ def _storage_candidate_build_bounded_document(
         details = prior_errors_by_candidate.get(str(item.get("candidate_id") or ""))
         if details:
             item["prior_runtime_errors"] = details[:20]
+    full_pass_finished = cursor_after >= len(specs) and not deferred_prefix
     progress_cursor = cursor_after if complete or cursor_after < len(specs) else cursor_before
     if errors and cursor_after >= len(specs):
         blocked_indices = [
@@ -17200,7 +17214,11 @@ def _storage_candidate_build_bounded_document(
         progress_cursor = 0
     processed_this_run = max(0, cursor_after - cursor_before)
     progress = {
-        "status": "complete" if complete else "partial",
+        # A full inventory pass can be exhausted while retained candidate
+        # errors still keep the evidence stale.  Record that distinction so
+        # the scheduled route does not repeat the same 38k-object walk every
+        # ten minutes; explicit deep refresh remains available to retry it.
+        "status": "complete" if complete else ("complete_with_errors" if full_pass_finished and errors else "partial"),
         "inventory_digest": _storage_candidate_inventory_digest(specs),
         "total": len(specs),
         "cursor": progress_cursor,
@@ -17211,8 +17229,10 @@ def _storage_candidate_build_bounded_document(
         "budget_seconds": budget_seconds,
         "elapsed_seconds": round(max(0.0, elapsed_seconds), 3),
         "last_run_at": generated_at,
+        "last_full_attempt_at": generated_at if full_pass_finished else (previous.get("deep_progress", {}).get("last_full_attempt_at") if isinstance(previous.get("deep_progress"), Mapping) else None),
+        "full_pass_finished": full_pass_finished,
         "deadline_exceeded": bool(deadline_exceeded),
-        "continuation_required": not complete,
+        "continuation_required": not complete and not full_pass_finished,
         "resume_policy": "cursor_candidate_id",
     }
     if not errors and cursor_after > 0 and cursor_after <= len(specs):
@@ -17663,6 +17683,47 @@ def storage_candidates_refresh_if_due() -> dict[str, Any]:
         observed = storage_candidate_contracts.parse_time(previous.get("last_deep_at"))
         current = storage_candidate_contracts.parse_time(now_iso())
         age = (current - observed).total_seconds() if current and observed else None
+        last_full_attempt = storage_candidate_contracts.parse_time(progress.get("last_full_attempt_at"))
+        full_attempt_age = (current - last_full_attempt).total_seconds() if current and last_full_attempt else None
+        if (
+            not error
+            and progress.get("status") == "complete_with_errors"
+            and progress.get("full_pass_finished") is True
+            and full_attempt_age is not None
+            and 0 <= full_attempt_age < 86400
+        ):
+            # A full pass with candidate blockers is not fresh or complete,
+            # but it has no remaining inventory work to continue.  Keep the
+            # errors visible in latest.json and require an explicit deep run
+            # or the normal daily attempt boundary before repeating the scan.
+            return {
+                "schema": f"{SCHEMA_PREFIX}_storage_candidates_refresh_receipt_v1",
+                "version": VERSION,
+                "generated_at": now_iso(),
+                "ok": False,
+                "mutates": False,
+                "partial": True,
+                "complete": False,
+                "snapshot_id": previous.get("snapshot_id"),
+                "last_deep_at": previous.get("last_deep_at"),
+                "freshness": previous.get("freshness"),
+                "summary": previous.get("summary"),
+                "deep_progress": {
+                    key: progress[key]
+                    for key in (
+                        "status", "total", "cursor", "processed", "remaining",
+                        "last_run_at", "last_full_attempt_at", "continuation_required",
+                    )
+                    if key in progress
+                },
+                "refresh_result": {
+                    "mode": "deep",
+                    "status": "complete_with_errors_not_due",
+                    "retry_after_seconds": max(0, int(86400 - full_attempt_age)),
+                    "automatic_deletion": False,
+                },
+                "paths": {"latest": str(STORAGE_CANDIDATES_LATEST_PATH)},
+            }
         if (
             not error and previous.get("ok") is True
             and previous.get("partial") is not True
@@ -17675,12 +17736,53 @@ def storage_candidates_refresh_if_due() -> dict[str, Any]:
             and age is not None and 0 <= age < 86400
         ):
             return {
+                "schema": f"{SCHEMA_PREFIX}_storage_candidates_refresh_receipt_v1",
+                "version": VERSION,
                 "ok": True, "mutates": False,
                 "refresh_result": {"mode": "deep", "status": "not_due"},
                 "last_deep_at": previous.get("last_deep_at"),
                 "age_seconds": int(age), "refresh_interval_seconds": 86400,
+                "paths": {"latest": str(STORAGE_CANDIDATES_LATEST_PATH)},
             }
         return _storage_candidates_refresh_unlocked(deep=True, write_latest=True)
+
+
+def _storage_candidate_refresh_summary(document: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the bounded receipt for scheduled/summary-only CLI callers."""
+    coverage = document.get("coverage") if isinstance(document.get("coverage"), Mapping) else {}
+    summary = document.get("summary") if isinstance(document.get("summary"), Mapping) else {}
+    progress = document.get("deep_progress") if isinstance(document.get("deep_progress"), Mapping) else {}
+    refresh = document.get("refresh_result") if isinstance(document.get("refresh_result"), Mapping) else {}
+    paths = document.get("paths") if isinstance(document.get("paths"), Mapping) else {}
+    coverage_fields = (
+        "mode", "discovered", "observed", "current_results", "carried_forward_count",
+        "partial", "complete", "physical_measured", "physical_unknown",
+        "fingerprint_complete", "fingerprint_incomplete", "evidence_complete",
+        "evidence_incomplete", "runtime_error_count", "pressure_finding_count",
+    )
+    progress_fields = (
+        "status", "total", "cursor", "processed", "processed_this_run", "remaining",
+        "batch_limit", "budget_seconds", "elapsed_seconds", "last_run_at",
+        "last_full_attempt_at", "full_pass_finished", "continuation_required",
+    )
+    return {
+        "schema": f"{SCHEMA_PREFIX}_storage_candidates_refresh_receipt_v1",
+        "version": document.get("version", VERSION),
+        "generated_at": document.get("generated_at"),
+        "ok": document.get("ok") is True,
+        "mutates": document.get("mutates") is not False,
+        "partial": document.get("partial") is True,
+        "complete": document.get("complete") is True or coverage.get("complete") is True,
+        "snapshot_id": document.get("snapshot_id"),
+        "last_deep_at": document.get("last_deep_at"),
+        "freshness": document.get("freshness"),
+        "summary": dict(summary),
+        "coverage": {key: coverage[key] for key in coverage_fields if key in coverage},
+        "deep_progress": {key: progress[key] for key in progress_fields if key in progress},
+        "refresh_result": dict(refresh),
+        "paths": {"latest": paths.get("latest") or str(STORAGE_CANDIDATES_LATEST_PATH)},
+        "write_errors": list(document.get("write_errors", [])) if isinstance(document.get("write_errors"), list) else [],
+    }
 
 
 def storage_candidates_list(**filters: Any) -> dict[str, Any]:
@@ -54275,7 +54377,8 @@ def main(argv: list[str]) -> int:
     storage_candidates_sub = storage_candidates_parser.add_subparsers(dest="storage_candidates_command", required=True)
     storage_candidates_refresh_parser = storage_candidates_sub.add_parser("refresh")
     storage_candidates_refresh_parser.add_argument("--deep", action="store_true", help="run owner, process, Podman, Git, Vault and fingerprint evidence adapters")
-    storage_candidates_refresh_parser.add_argument("--if-due", action="store_true", help="with --deep, continue partial sweeps or refresh a complete snapshot after 24 hours")
+    storage_candidates_refresh_parser.add_argument("--if-due", action="store_true", help="with --deep, continue a partial sweep or refresh a complete snapshot when due; emit a bounded receipt")
+    storage_candidates_refresh_parser.add_argument("--summary-json", action="store_true", help="emit a bounded receipt instead of the full candidate document")
     storage_candidates_refresh_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     storage_candidates_list_parser = storage_candidates_sub.add_parser("list")
     storage_candidates_list_parser.add_argument("--verdict", action="append", default=[])
@@ -56380,7 +56483,12 @@ def main(argv: list[str]) -> int:
             if command == "refresh":
                 if args.if_due and not args.deep:
                     parser.error("--if-due requires --deep")
-                data = storage_candidates_refresh_if_due() if args.if_due else storage_candidates_refresh(deep=bool(args.deep), write_latest=True)
+                if args.if_due:
+                    data = _storage_candidate_refresh_summary(storage_candidates_refresh_if_due())
+                else:
+                    data = storage_candidates_refresh(deep=bool(args.deep), write_latest=True)
+                    if args.summary_json:
+                        data = _storage_candidate_refresh_summary(data)
             elif command == "list":
                 data = storage_candidates_list(
                     verdicts=args.verdict,

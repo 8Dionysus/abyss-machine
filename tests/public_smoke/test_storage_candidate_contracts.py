@@ -475,3 +475,84 @@ def test_operator_approval_and_external_receipt_are_candidate_bound() -> None:
     assert receipt["valid"] is True
     assert receipt["reclaimed_bytes"] == 4096
     assert receipt["lifecycle_state"] == "receipted"
+
+
+def test_candidate_history_partial_refresh_records_only_current_delta() -> None:
+    current = {
+        "candidate_id": "reclaim-current",
+        "path": "/srv/abyss-machine/tmp/current",
+        "owner": "abyss-machine",
+        "kind": "generated_tmp",
+        "verdict": "blocked_unknown",
+        "observation_status": "current_deep",
+        "physical_bytes": 2048,
+        "reclaimable_bytes": 1024,
+        "fingerprint": {"digest": "current-digest", "complete": True},
+        "blockers": [{"code": "owner_review_required"}],
+    }
+    carried = {
+        **current,
+        "candidate_id": "reclaim-carried",
+        "path": "/srv/abyss-machine/tmp/carried",
+        "observation_status": "carried_forward",
+    }
+    event = contracts.candidate_history_event({
+        "version": "test",
+        "generated_at": NOW.isoformat(),
+        "deep": True,
+        "partial": True,
+        "last_deep_at": "2026-07-30T00:00:00+00:00",
+        "snapshot_id": "snapshot-current",
+        "freshness": {"status": "stale", "complete": False},
+        "coverage": {
+            "mode": "deep_partial_batch",
+            "discovered": 2,
+            "observed": 1,
+            "current_results": 1,
+            "carried_forward_count": 1,
+            "partial": True,
+            "complete": False,
+            "runtime_error_count": 1,
+            "runtime_errors": [{"candidate_id": "reclaim-current", "path": current["path"], "error": "permission"}],
+            "pressure_finding_count": 2,
+            "pressure_findings": [{"candidate_id": "reclaim-current", "path": current["path"]}],
+        },
+        "runtime_errors": [{"candidate_id": "reclaim-current", "path": current["path"], "error": "permission"}],
+        "pressure_findings": [{"candidate_id": "reclaim-current", "path": current["path"]}],
+        "summary": {"candidates": 2, "by_verdict": {"blocked_unknown": {"candidates": 2}}},
+        "deep_progress": {"status": "partial", "total": 2, "cursor": 1, "remaining": 1},
+        "changes": [{"candidate_id": "reclaim-current", "path": current["path"], "current": "blocked_unknown"}],
+        "candidates": [current, carried],
+        "paths": {"latest": "/var/lib/abyss-machine/storage/candidates/latest.json"},
+    })
+
+    assert event["schema"] == "abyss_machine_storage_candidate_history_event_v2"
+    assert event["event_mode"] == "deep_delta"
+    assert event["complete"] is False
+    assert event["observation_count"] == 1
+    assert event["omitted_observation_count"] == 1
+    assert [item["candidate_id"] for item in event["observations"]] == ["reclaim-current"]
+    assert event["observations"][0]["blockers"] == ["owner_review_required"]
+    assert event["runtime_error_count"] == 1
+    assert "runtime_errors" not in event
+    assert "pressure_findings" not in event
+    assert event["full_evidence_path"].endswith("latest.json")
+
+
+def test_candidate_history_complete_deep_refresh_is_a_checkpoint() -> None:
+    event = contracts.candidate_history_event({
+        "version": "test",
+        "generated_at": NOW.isoformat(),
+        "deep": True,
+        "partial": False,
+        "coverage": {"complete": True, "runtime_error_count": 0, "pressure_finding_count": 1},
+        "candidates": [
+            {"candidate_id": "reclaim-a", "observation_status": "current_deep", "fingerprint": {"digest": "a"}},
+            {"candidate_id": "reclaim-b", "observation_status": "carried_forward", "fingerprint": {"digest": "b"}},
+        ],
+    })
+
+    assert event["event_mode"] == "deep_snapshot"
+    assert event["complete"] is True
+    assert event["observation_count"] == 2
+    assert event["omitted_observation_count"] == 0

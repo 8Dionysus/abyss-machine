@@ -1529,6 +1529,8 @@ def test_storage_monitor_defers_deep_candidate_work_to_dedicated_route(monkeypat
         return {
             "ok": False,
             "summary": {},
+            "candidates": [{"candidate_id": "reclaim-large-read-model"}],
+            "runtime_errors": [{"path": "/private/diagnostic"}],
             "freshness": preserved_freshness,
             "last_deep_at": recent,
             "refresh_result": {"mode": "light", "status": "carry_forward_deep_partial", "continuation_required": True},
@@ -1541,6 +1543,10 @@ def test_storage_monitor_defers_deep_candidate_work_to_dedicated_route(monkeypat
 
     assert calls["artifacts"]["scope"] == "ai-cache"
     assert calls["candidates"]["deep"] is False
+    assert calls["candidates"]["write_latest"] is False
+    candidate_step = next(step for step in result["steps"] if step["name"] == "candidates_light")
+    assert "candidates" not in candidate_step
+    assert "runtime_errors" not in candidate_step
     assert result["summary"]["candidate_scan_deep"] is False
     assert result["summary"]["candidate_deep_requested"] is True
     assert result["summary"]["candidate_deep_due"] is True
@@ -1754,7 +1760,9 @@ def test_bounded_deep_deadline_keeps_last_good_and_does_not_retire_failed_object
     refreshed = cli._storage_candidates_refresh_unlocked(deep=True, write_latest=False)
     assert refreshed["ok"] is False
     assert refreshed["partial"] is True
-    assert refreshed["deep_progress"]["status"] == "partial"
+    assert refreshed["deep_progress"]["status"] == "complete_with_errors"
+    assert refreshed["deep_progress"]["full_pass_finished"] is True
+    assert refreshed["deep_progress"]["continuation_required"] is False
     assert refreshed["deep_progress"]["cursor"] == 0
     assert refreshed["last_deep_at"] == last_deep_at
     assert [item["candidate_id"] for item in refreshed["candidates"]] == ["reclaim-keep"]
@@ -2072,7 +2080,9 @@ def test_bounded_deep_error_authority_exceeds_display_window_until_reverified() 
     assert partial["partial"] is True
     assert len(partial["coverage"]["runtime_errors_full"]) == 204
     assert len(partial["runtime_errors"]) == 200
-    assert partial["deep_progress"]["status"] == "partial"
+    assert partial["deep_progress"]["status"] == "complete_with_errors"
+    assert partial["deep_progress"]["full_pass_finished"] is True
+    assert partial["deep_progress"]["continuation_required"] is False
     assert partial["retired"] == []
 
     light = cli._storage_candidate_preserve_partial_light_state({"coverage": {}}, partial)
@@ -2254,7 +2264,10 @@ def test_bounded_deep_does_not_claim_complete_while_earlier_error_is_unresolved(
     )
     assert result["ok"] is False
     assert result["partial"] is True
-    assert result["deep_progress"]["status"] == "partial"
+    assert result["deep_progress"]["status"] == "complete_with_errors"
+    assert result["deep_progress"]["full_pass_finished"] is True
+    assert result["deep_progress"]["continuation_required"] is False
+    assert result["deep_progress"]["last_full_attempt_at"] == "2026-09-05T19:01:00+00:00"
     assert result["deep_progress"]["cursor"] == 0
     assert result["last_deep_at"] == "2026-09-05T17:00:00+00:00"
     assert any(item.get("candidate_id") == "reclaim-a" for item in result["runtime_errors"])
