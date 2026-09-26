@@ -45,6 +45,26 @@ with rollback notes after parity and touched-organ smoke checks. Live-root
 refresh uses the same admitted install-bundle selector as full install; the
 artifact-gate skip remains limited to isolated projection rehearsals.
 
+## Storage Allocation Alerts
+
+The existing five-minute capacity feed also reads Btrfs allocation counters,
+including pending metadata reservations. Free bytes from `statvfs` alone do
+not establish that a write can succeed. Allocation pressure and observed
+`ENOSPC`, `EDQUOT`, or `EROFS` during capacity-state writes produce distinct
+alerts; allocation pressure is a warning, not proof that a write has failed.
+
+Delivery precedes the normal state-file write. The feed records current health
+under the runtime root and retains the last incident there and under the
+storage root. Each sink retries independently; desktop notifications are
+throttled only after successful delivery. Place the storage root on a separate
+filesystem for persistence independent of the system root. The unit sends
+errors to the journal and suppresses routine JSON stdout, so a failed root-file
+redirection cannot prevent the collector from starting.
+
+These signals never balance the filesystem, remove data, or stop workloads.
+Multi-device Btrfs allocation totals are only an upper bound on usable capacity
+and must not be used as write admission.
+
 ## Nervous Rebuild Control
 
 Normal event, episode, and lexical-index builds use their incremental fixed

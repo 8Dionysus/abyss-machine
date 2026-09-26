@@ -15,7 +15,9 @@ from abyss_machine import storage_capacity  # noqa: E402
 
 CAPACITY_SUCCESS_SCRIPT = dedent(
     """
-    from abyss_machine import storage_capacity, storage_forecast
+    from abyss_machine import storage_capacity, storage_forecast, storage_health
+    real_publish = storage_health.publish
+    storage_health.publish = lambda *args, **kwargs: real_publish(*args, **kwargs, notify=False)
 
     def fixture_measure(path, timestamp):
         return {
@@ -33,7 +35,9 @@ CAPACITY_SUCCESS_SCRIPT = dedent(
 )
 CAPACITY_FAILURE_SCRIPT = dedent(
     """
-    from abyss_machine import storage_capacity, storage_forecast
+    from abyss_machine import storage_capacity, storage_forecast, storage_health
+    real_publish = storage_health.publish
+    storage_health.publish = lambda *args, **kwargs: real_publish(*args, **kwargs, notify=False)
 
     def fixture_measure_failure(path, timestamp):
         return {
@@ -49,7 +53,7 @@ CAPACITY_FAILURE_SCRIPT = dedent(
 
 
 def _run_capacity(state_root: Path) -> dict:
-    env = {**os.environ, "ABYSS_MACHINE_STATE_ROOT": str(state_root), "PYTHONPATH": str(ROOT / "src")}
+    env = {**os.environ, "ABYSS_MACHINE_STATE_ROOT": str(state_root), "ABYSS_MACHINE_RUN_ROOT": str(state_root / "run"), "ABYSS_MACHINE_ROOT": str(state_root / "srv"), "PYTHONPATH": str(ROOT / "src")}
     result = subprocess.run(
         [sys.executable, "-c", CAPACITY_SUCCESS_SCRIPT],
         cwd=ROOT,
@@ -91,7 +95,7 @@ def test_capacity_measurement_failure_returns_nonzero_without_rewriting_history(
         encoding="utf-8",
     )
     before = state_path.read_bytes()
-    env = {**os.environ, "ABYSS_MACHINE_STATE_ROOT": str(state_root), "PYTHONPATH": str(ROOT / "src")}
+    env = {**os.environ, "ABYSS_MACHINE_STATE_ROOT": str(state_root), "ABYSS_MACHINE_RUN_ROOT": str(state_root / "run"), "ABYSS_MACHINE_ROOT": str(state_root / "srv"), "PYTHONPATH": str(ROOT / "src")}
     result = subprocess.run(
         [sys.executable, "-c", CAPACITY_FAILURE_SCRIPT],
         cwd=ROOT,

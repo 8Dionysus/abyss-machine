@@ -10,6 +10,8 @@ from pathlib import Path
 import tempfile
 from typing import Any
 
+from . import storage_health
+
 MAX_SAMPLES = 168
 MAX_STATE_BYTES = 256 * 1024
 WINDOW_SECONDS = 7 * 86400
@@ -29,6 +31,7 @@ def forecast(samples: list[dict[str, Any]], current: dict[str, Any]) -> dict[str
     """
     result = {
         "path": current["path"],
+        "filesystem_health": current.get("filesystem_health", {}),
         "filesystem_key": current.get("filesystem_key"),
         "available_to_user_bytes": current.get("available_to_user_bytes"),
         "free_floor_bytes": FREE_FLOOR_BYTES,
@@ -106,6 +109,7 @@ def _measure(path: Path, timestamp: float) -> dict[str, Any]:
             raise OSError("expected_capacity_mount_missing")
         st = path.stat()
         capacity = os.statvfs(path)
+        row["filesystem_health"] = storage_health.measure(path)
         total = capacity.f_frsize * capacity.f_blocks
         row.update(
             filesystem_key=f"{st.st_dev}:{capacity.f_fsid}:{total}",
@@ -172,7 +176,7 @@ def observe(state_path: Path, *, paths: tuple[Path, ...], write: bool = True) ->
                 ]
                 prior.sort(key=lambda item: item["timestamp"])
                 if not prior or timestamp - prior[-1]["timestamp"] >= SAMPLE_INTERVAL_SECONDS:
-                    prior.append(row)
+                    prior.append({key: value for key, value in row.items() if key != "filesystem_health"})
                 retained.extend(prior[-MAX_SAMPLES:])
             _write(state_path, retained)
         return {
@@ -186,7 +190,7 @@ def observe(state_path: Path, *, paths: tuple[Path, ...], write: bool = True) ->
             "automatic_deletion": False,
         }
     except (OSError, ValueError, TypeError, KeyError) as exc:
-        return {"ok": False, "status": "history_unavailable", "error": str(exc)[:300], "roots": current}
+        return {"ok": False, "status": "history_unavailable", "error": str(exc)[:300], "roots": current, "errno": getattr(exc, "errno", None)}
     finally:
         if lock is not None:
             lock.close()
