@@ -72,6 +72,17 @@ def test_candidate_cli_light_refresh_register_claim_and_release(tmp_path: Path) 
     assert second_refresh["light_refresh"]["pending_manifest_candidate_ids"] == [candidate_id]
 
 
+def test_candidate_cli_summary_json_returns_bounded_receipt(tmp_path: Path) -> None:
+    completed, receipt = _run(tmp_path, "refresh", "--summary-json")
+
+    assert completed.returncode == 0, completed.stderr
+    assert receipt["schema"].endswith("storage_candidates_refresh_receipt_v1")
+    assert receipt["paths"]["latest"].endswith("storage/candidates/latest.json")
+    assert "candidates" not in receipt
+    assert "runtime_errors" not in receipt
+    assert "pressure_findings" not in receipt
+
+
 def test_bounded_deep_timer_is_installed_by_core_profile() -> None:
     service = (ROOT / "systemd" / "user" / "abyss-storage-candidates-deep.service").read_text(encoding="utf-8")
     timer = (ROOT / "systemd" / "user" / "abyss-storage-candidates-deep.timer").read_text(encoding="utf-8")
