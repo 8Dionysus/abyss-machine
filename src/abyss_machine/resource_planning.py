@@ -1612,6 +1612,33 @@ def build_plan(
     }
 
 
+def finite_service_properties(
+    unit_type: str, runtime_max_sec: float | None, timeout_stop_sec: float | None,
+) -> dict[str, str]:
+    """Creation-only service lifetime; independent of the systemd-run waiter."""
+    if runtime_max_sec is None and timeout_stop_sec is None:
+        return {}
+    if unit_type != "service":
+        raise ValueError("finite service lifetime is unsupported for scope units")
+    if runtime_max_sec is None or timeout_stop_sec is None:
+        raise ValueError("--runtime-max-sec and --timeout-stop-sec must be supplied together")
+    durations_usec: list[int] = []
+    for name, value in (("runtime-max-sec", runtime_max_sec), ("timeout-stop-sec", timeout_stop_sec)):
+        seconds = float(value)
+        if not math.isfinite(seconds) or not 0.000001 <= seconds < (2**64 - 1) / 1_000_000:
+            raise ValueError(f"--{name} must be a finite duration of at least one microsecond below systemd infinity")
+        # Round down: encoding the requested lifetime must never extend it.
+        durations_usec.append(int(seconds * 1_000_000))
+    return {
+        "RuntimeMaxSec": f"{durations_usec[0]}us",
+        "RuntimeRandomizedExtraSec": "0",
+        "TimeoutStopSec": f"{durations_usec[1]}us",
+        "KillMode": "control-group",
+        "SendSIGKILL": "yes",
+        "Restart": "no",
+    }
+
+
 def systemd_command(plan: dict[str, Any], command: list[str], unit: str | None, same_dir: bool) -> list[str]:
     systemd = plan.get("systemd", {}) if isinstance(plan.get("systemd"), dict) else {}
     unit_type = str(systemd.get("unit_type") or "service")

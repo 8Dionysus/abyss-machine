@@ -48,6 +48,7 @@ DEFAULT_POLICY: dict[str, Any] = {
         "podman_image": {"minimum_observations": 3, "quiet_seconds": 72 * 3600},
         "podman_volume": {"minimum_observations": 3, "quiet_seconds": 7 * 24 * 3600},
         "aoa_owner_debris": {"minimum_observations": 2, "quiet_seconds": 3600},
+        "cargo_target": {"minimum_observations": 3, "quiet_seconds": 0},
     },
 }
 
@@ -62,6 +63,7 @@ EXECUTORS_BY_KIND = {
     "podman_image": "podman_image_remove",
     "podman_volume": "podman_volume_remove",
     "aoa_owner_debris": "aoa_maintenance_cleanup",
+    "cargo_target": "cargo_target_cleanup_v1",
     "vault_archive": "vault_verified_offload",
 }
 

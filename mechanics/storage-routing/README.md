@@ -82,3 +82,39 @@ forecast. Cleanup remains part of the observed rate; the result is an
 extrapolation, not a write reservation or a deletion decision.
 
 Use `host-facts` for machine posture and `local-ai-runtime` for AI caches.
+
+### Completed Cargo target retirement
+
+`storage candidates execute-cargo ID --attestation FILE` is dry-run by default;
+`--confirm` executes only the admitted `cargo_target_cleanup_v1` executor after
+fresh candidate validation and candidate-bound approval. Register the exact
+`cargo_target` with source/toolchain identity, verified recovery command,
+`--unique-data-clear`, external preserved refs and `--replacement-ref
+sha256:ATTESTATION_DIGEST --replacement-verified`. Keep its producer claim
+until terminal; release does not authorize deletion. Three stable observations
+are required. The Cargo-specific zero quiet window is justified by terminal
+custody and verified preservation, not filesystem age; other kinds and capacity
+floors retain their existing policy.
+
+The attestation JSON schema is `abyss_machine_cargo_target_retirement_v1`:
+`path`, `source_id`, `owner` bind the candidate; `terminal`,
+`future_consumers_independent`, and `unique_data_clear` must be true;
+`recovery_command` names the reproducible source-bound build; `preserved_files`
+contains absolute external `path`, `sha256`, and `role`, including `product`,
+`proof`, and `terminal_receipt`. The attestation digest is bound in the creation
+manifest. This owner assessment remains explicit; hashing does not establish
+semantic acceptance or independence by itself.
+
+Only `cache/cargo/target/TASK/source-bound/IDENTITY` directories qualify.
+External hardlinks also block reclaim; Cargo hardlinks entirely inside the target
+are allowed. The audit records target allocated bytes and the observed net free
+capacity delta, which is not exclusive attribution when other writers run.
+Symlinks, cross-device entries, incomplete fingerprints/process scans, active
+claims, writers, or unpreserved products fail closed. Cargo locks are held
+through final revalidation and fd-safe deletion. After preservation hashing and
+size measurement, the executor repeats the owner process scan and consumes an
+immediate claim/approval check, including approval expiry, before deletion.
+The route records hooks, an
+apply audit, executor source digest, approval binding, measured reclaim and
+candidate receipt. It never discovers or automatically deletes Cargo caches;
+source, worktrees, runtime, storage and session scratch results are excluded.
