@@ -235,6 +235,7 @@ try:
     from . import process_contracts
     from . import runtime_evidence_contracts
     from . import storage_candidate_adapters
+    from . import storage_cargo_adapters
     from . import storage_candidate_contracts
     from . import storage_process_probe
     from . import storage_reservations
@@ -343,6 +344,7 @@ except ImportError:  # pragma: no cover - supports direct execution of an instal
     from abyss_machine import process_contracts
     from abyss_machine import runtime_evidence_contracts
     from abyss_machine import storage_candidate_adapters
+    from abyss_machine import storage_cargo_adapters
     from abyss_machine import storage_candidate_contracts
     from abyss_machine import storage_process_probe
     from abyss_machine import storage_reservations
@@ -18118,6 +18120,76 @@ def storage_candidate_operator_preflight(candidate_id: str, *, refresh_validatio
     return data
 
 
+def storage_candidate_execute_cargo(candidate_id: str, *, attestation: str,
+                                    confirm: bool = False) -> dict[str, Any]:
+    with storage_candidates_refresh_lock():
+        preflight = storage_candidate_operator_preflight(candidate_id, refresh_validation=True)
+        document, _ = load_json_document(STORAGE_CANDIDATES_LATEST_PATH)
+        candidate = next((item for item in (document or {}).get("candidates", [])
+                          if item.get("candidate_id") == candidate_id), {})
+        data = {"schema": f"{SCHEMA_PREFIX}_storage_cargo_target_apply_v1",
+                "version": VERSION, "generated_at": now_iso(), "candidate_id": candidate_id,
+                "dry_run": not confirm, "preflight": preflight, "ok": False,
+                "executor_source_sha256": storage_cargo_adapters.file_digest(Path(storage_cargo_adapters.__file__))}
+        if not preflight.get("ok"):
+            return data
+        cargo = storage_cargo_adapters.execute_cargo_target(
+            candidate, cache_root=ABYSS_MACHINE_CACHE_ROOT,
+            attestation_path=Path(attestation), dry_run=True)
+        data["cargo_preflight"] = cargo
+        if not cargo.get("ok"):
+            return data
+        if not confirm:
+            data["ok"] = True
+            return data
+        hooks = run_storage_hooks("pre_cache_cleanup", data, enforce=True)
+        data["pre_cache_cleanup"] = hooks
+        if not hooks.get("ok"):
+            return data
+        # Revalidate claims, references, approval and drift after the hooks.
+        data["final_preflight"] = storage_candidate_operator_preflight(candidate_id, refresh_validation=True)
+        if not data["final_preflight"].get("ok"):
+            return data
+        path = STORAGE_APPLY_ROOT / (candidate_id + "-" + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ") + ".json")
+        data["audit_path"] = str(path)
+        data["phase"] = "admitted_before_execution"
+        error = safe_atomic_write_json(path, data, 0o664)
+        if error:
+            data["write_error"] = error
+            return data
+        def immediate_admission() -> dict[str, Any]:
+            validation, _ = load_json_document(STORAGE_CANDIDATES_VALIDATION_LATEST_PATH)
+            approval, _ = load_json_document(STORAGE_CANDIDATES_APPROVALS_ROOT / f"{candidate_id}.json")
+            gate = storage_candidate_contracts.operator_apply_preflight(
+                candidate=candidate, validation=validation or {}, approval=approval or {})
+            claims = storage_candidate_contracts.active_claims(
+                storage_candidate_adapters.load_json_records(STORAGE_CANDIDATES_CLAIMS_ROOT),
+                candidate_id=candidate_id, path=str(candidate.get("path") or ""))
+            return {"ok": gate.get("ok") is True and not claims,
+                    "approval_preflight": gate, "active_claims": claims}
+
+        execution = storage_cargo_adapters.execute_cargo_target(
+            candidate, cache_root=ABYSS_MACHINE_CACHE_ROOT,
+            attestation_path=Path(attestation), dry_run=False,
+            admission_check=immediate_admission)
+        data["execution"] = execution
+        data["post_cache_cleanup"] = run_storage_hooks("post_cache_cleanup", data, enforce=False)
+        # Preserve an apply audit before the candidate receipt references it.
+        data["phase"] = "execution_completed"
+        error = safe_atomic_write_json(path, data, 0o664)
+        data["audit_path"] = str(path)
+        if error:
+            data["write_error"] = error
+            return data
+        data["receipt"] = storage_candidate_receipt(
+            candidate_id, action="cargo_target_cleanup_v1",
+            result="applied" if execution.get("applied") else "failed",
+            before_bytes=execution.get("before_bytes"), after_bytes=execution.get("after_bytes"),
+            evidence_refs=[str(path), attestation, "executor-sha256:" + str(data["executor_source_sha256"])])
+        data["ok"] = bool(execution.get("ok") and data["receipt"].get("ok"))
+        return data
+
+
 def storage_candidate_receipt(
     candidate_id: str,
     *,
@@ -20157,7 +20229,12 @@ def resource_launch(
     workspace_owner: str | None = None,
     workspace_lease_seconds: int = 300,
     workspace_grace_seconds: int = 60,
+    runtime_max_sec: float | None = None,
+    timeout_stop_sec: float | None = None,
 ) -> dict[str, Any]:
+    finite_properties = resource_planning.finite_service_properties(
+        unit_type, runtime_max_sec, timeout_stop_sec,
+    )
     request_started_at = now_iso()
     request_started_monotonic = time.monotonic()
     clean_command = [str(item) for item in command if str(item)]
@@ -20896,6 +20973,8 @@ def resource_launch(
     # derive an argv that could be mistaken for an admitted launch).  The
     # direct stale-just-before-execute regression still exercises preparation
     # because it reaches this point with no denial yet.
+    if finite_properties:
+        plan["systemd"]["properties"].update(finite_properties)
     systemd_cmd = (
         resource_systemd_command(plan, clean_command, unit=launch_unit, same_dir=same_dir)
         if clean_command and not denied and not blocked
@@ -21000,6 +21079,8 @@ def resource_launch(
                 "launch_unit": launch_unit,
                 "same_dir": bool(same_dir),
                 "timeout_sec": timeout_sec,
+                "runtime_max_sec": runtime_max_sec,
+                "timeout_stop_sec": timeout_stop_sec,
                 "command": clean_command,
                 "bytes_required": bytes_required,
                 "target": target,
@@ -54396,6 +54477,11 @@ def main(argv: list[str]) -> int:
     storage_candidates_preflight_parser = storage_candidates_sub.add_parser("preflight")
     storage_candidates_preflight_parser.add_argument("candidate_id")
     storage_candidates_preflight_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    storage_candidates_cargo_parser = storage_candidates_sub.add_parser("execute-cargo")
+    storage_candidates_cargo_parser.add_argument("candidate_id")
+    storage_candidates_cargo_parser.add_argument("--attestation", required=True)
+    storage_candidates_cargo_parser.add_argument("--confirm", action="store_true")
+    storage_candidates_cargo_parser.add_argument("--json", action="store_true")
     storage_candidates_register_parser = storage_candidates_sub.add_parser("register")
     storage_candidates_register_parser.add_argument("--path", required=True)
     storage_candidates_register_parser.add_argument("--owner", required=True)
@@ -55003,6 +55089,8 @@ def main(argv: list[str]) -> int:
     resource_launch_parser.add_argument("--unit", default=None, help="optional transient unit name")
     resource_launch_parser.add_argument("--no-same-dir", action="store_true", help="do not pass --same-dir to systemd-run")
     resource_launch_parser.add_argument("--timeout", type=float, default=0.0, help="timeout for systemd-run call; 0 means no timeout")
+    resource_launch_parser.add_argument("--runtime-max-sec", type=float, default=None, help="finite service lifetime at creation; requires --timeout-stop-sec; unsupported for scopes")
+    resource_launch_parser.add_argument("--timeout-stop-sec", type=float, default=None, help="finite service stop grace at creation; requires --runtime-max-sec")
     resource_launch_parser.add_argument("--bytes", dest="bytes_required", type=int, default=None, help="optional generated-write byte estimate")
     resource_launch_parser.add_argument("--target", default=None, help="optional generated-write target path for storage preflight")
     resource_launch_parser.add_argument("--memory-demand-mib", type=float, default=None, help="expected incremental startup memory demand in MiB")
@@ -56503,6 +56591,8 @@ def main(argv: list[str]) -> int:
                 data = storage_candidate_validate(str(args.candidate_id), write_latest=True)
             elif command == "preflight":
                 data = storage_candidate_operator_preflight(str(args.candidate_id), refresh_validation=True)
+            elif command == "execute-cargo":
+                data = storage_candidate_execute_cargo(str(args.candidate_id), attestation=args.attestation, confirm=bool(args.confirm))
             elif command == "register":
                 data = storage_candidate_register(
                     path=str(Path(args.path).expanduser()),
@@ -57837,6 +57927,12 @@ def main(argv: list[str]) -> int:
                 print_resource_plan_text(data)
             return 0 if data.get("ok") else 2 if data.get("decision") == "force_required" else 1
         if args.resource_command == "launch":
+            try:
+                resource_planning.finite_service_properties(
+                    "scope" if args.scope else "service", args.runtime_max_sec, args.timeout_stop_sec,
+                )
+            except ValueError as exc:
+                parser.error(str(exc))
             data = resource_launch(
                 command=list(args.cmd),
                 workload_class=str(args.workload_class),
@@ -57850,6 +57946,8 @@ def main(argv: list[str]) -> int:
                 unit=args.unit,
                 same_dir=not bool(args.no_same_dir),
                 timeout_sec=float(args.timeout),
+                runtime_max_sec=args.runtime_max_sec,
+                timeout_stop_sec=args.timeout_stop_sec,
                 bytes_required=args.bytes_required,
                 target=args.target,
                 memory_demand_mib=args.memory_demand_mib,

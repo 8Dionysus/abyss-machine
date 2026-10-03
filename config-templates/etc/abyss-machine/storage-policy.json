@@ -350,7 +350,8 @@
         "model_cache": {"minimum_observations": 3, "quiet_seconds": 604800},
         "podman_image": {"minimum_observations": 3, "quiet_seconds": 259200},
         "podman_volume": {"minimum_observations": 3, "quiet_seconds": 604800},
-        "aoa_owner_debris": {"minimum_observations": 2, "quiet_seconds": 3600}
+        "aoa_owner_debris": {"minimum_observations": 2, "quiet_seconds": 3600},
+        "cargo_target": {"minimum_observations": 3, "quiet_seconds": 0}
       },
       "rule": "A candidate verdict is a hard-gate classification, never a score. Ready candidates still require exact candidate revalidation and operator approval immediately before any owner-specific apply."
   },
