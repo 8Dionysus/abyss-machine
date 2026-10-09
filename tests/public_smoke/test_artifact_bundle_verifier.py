@@ -1198,7 +1198,7 @@ def test_artifact_subject_store_scope_is_visible_through_cli(tmp_path: Path) -> 
     env = dict(os.environ, PYTHONPATH=str(SRC_ROOT), PYTHONDONTWRITEBYTECODE="1",
                ABYSS_MACHINE_ARTIFACT_SUBJECT_STORE_ISOLATED_ROOT=str(selected),
                ABYSS_MACHINE_ARTIFACT_SUBJECT_STORE_ROOT=str(tmp_path / "ambient"))
-    result = subprocess.run([sys.executable, "-m", "abyss_machine", "artifacts", "paths", "--json"],
+    result = subprocess.run([sys.executable, "-m", "abyss_machine.cli", "artifacts", "paths", "--json"],
                             cwd=tmp_path, env=env, capture_output=True, text=True, timeout=20)
     assert result.returncode == 0, result.stderr
     scope = json.loads(result.stdout)["artifact_subject_store"]["search_scope"]
