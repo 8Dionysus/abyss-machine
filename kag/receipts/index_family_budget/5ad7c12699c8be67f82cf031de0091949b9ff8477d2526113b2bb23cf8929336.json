@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 25370970,
+  "allowed_tracked_bytes": 30801234,
+  "approved_by": "repository-owner",
+  "base_ref": "becc02d492edd0f8165643f004cc46972941dd2f",
+  "changed_generated_bytes": 25370970,
+  "changed_generated_files": 327,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "5ad7c12699c8be67f82cf031de0091949b9ff8477d2526113b2bb23cf8929336",
+  "reason": "Refresh the owner-generated family after correcting the bounded protocol-readiness wait in the TTS socket smoke test exposed by CI. The artifact isolation source and all controls remain unchanged. Authorize only the exact measured generated delta and digest; no host activation.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 30801234,
+  "tracked_bytes_max": 27262976
+}
