@@ -207,13 +207,19 @@ def test_tts_server_loop_handles_socket_requests_and_cleanup(tmp_path: Path) -> 
 
     thread = threading.Thread(target=target, daemon=True)
     thread.start()
-    deadline = time.time() + 2.0
-    while not socket_path.exists() and thread.is_alive() and time.time() < deadline:
+    # bind creates the filesystem node before listen makes the server ready.
+    # Wait for the actual protocol; CI may schedule the client between them.
+    deadline = time.monotonic() + 2.0
+    ping: dict[str, Any] = {}
+    while thread.is_alive() and time.monotonic() < deadline:
+        ping = ai_tts_adapters.server_request(
+            payload={"command": "ping"}, socket_path=socket_path, timeout=1.0
+        )
+        if ping.get("command") == "ping":
+            break
         time.sleep(0.01)
+    assert ping.get("command") == "ping", ping
 
-    assert socket_path.exists()
-
-    ping = ai_tts_adapters.server_request(payload={"command": "ping"}, socket_path=socket_path, timeout=1.0)
     synth = ai_tts_adapters.server_request(
         payload={"command": "synth", "text": "hello", "profile": "quality"},
         socket_path=socket_path,
