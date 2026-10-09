@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add an explicit isolated artifact subject-store search root for CLI consumers,
+  preserving missing-store refusal without ambient/system fallback. Expose the
+  effective scope through artifact paths before evidence or admission work.
+
 - Require explicit storage write permission in provider installers; do not
   consume a successful reroute, cleanup-first or capacity-only observation as
   admission. Preserve native change-preflight decisions and warnings.

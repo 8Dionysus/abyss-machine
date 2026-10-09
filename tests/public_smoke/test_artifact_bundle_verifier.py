@@ -1158,6 +1158,54 @@ def test_artifact_subject_store_dir_rejects_dot_tokens(tmp_path: Path) -> None:
             artifact_bundles.artifact_subject_store_dir(subjects, store_root=tmp_path)
 
 
+def test_artifact_subject_store_isolation_excludes_ambient_and_preserves_defaults(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    selected, ambient, default = (tmp_path / name for name in ("selected", "ambient", "default"))
+    monkeypatch.delenv("ABYSS_MACHINE_ARTIFACT_SUBJECT_STORE_ISOLATED_ROOT", raising=False)
+    monkeypatch.setattr(artifact_bundles, "DEFAULT_ARTIFACT_SUBJECT_STORE_ROOT", default)
+    monkeypatch.setenv("ABYSS_MACHINE_ARTIFACT_SUBJECT_STORE_ROOTS", str(ambient))
+    monkeypatch.setenv("ABYSS_MACHINE_ARTIFACT_SUBJECT_STORE_ROOT", str(ambient))
+    assert artifact_bundles._artifact_subject_store_roots() == [ambient, default]
+    monkeypatch.setenv("ABYSS_MACHINE_ARTIFACT_SUBJECT_STORE_ISOLATED_ROOT", str(selected))
+    assert artifact_bundles._artifact_subject_store_roots() == [selected]
+    assert not selected.exists()
+    subjects = {"artifact_class": "portable_bundle", "aggregate_digest": "sha256:" + "a" * 64}
+    assert artifact_bundles.artifact_subject_store_dir(subjects).is_relative_to(selected)
+    assert cli.artifacts_paths()["artifact_subject_store"]["search_scope"] == {
+        "schema_version": "abyss_machine_artifact_subject_store_scope_v1",
+        "mode": "isolated", "roots": [str(selected)],
+    }
+    monkeypatch.delenv("ABYSS_MACHINE_ARTIFACT_SUBJECT_STORE_ISOLATED_ROOT")
+    assert artifact_bundles._artifact_subject_store_roots() == [ambient, default]
+
+
+@pytest.mark.parametrize("raw", ["", " ", ".", "relative", "/", "/safe/../other", "/bad\x00root"])
+def test_artifact_subject_store_isolation_rejects_invalid_roots(
+    raw: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A plain mapping also permits the otherwise unrepresentable NUL negative.
+    monkeypatch.setattr(artifact_bundles.os, "environ", {
+        "ABYSS_MACHINE_ARTIFACT_SUBJECT_STORE_ISOLATED_ROOT": raw,
+        "ABYSS_MACHINE_ARTIFACT_SUBJECT_STORE_ROOT": "/ambient",
+    })
+    with pytest.raises(ValueError, match="isolated artifact subject store"):
+        artifact_bundles.artifact_subject_store_scope()
+
+
+def test_artifact_subject_store_scope_is_visible_through_cli(tmp_path: Path) -> None:
+    selected = tmp_path / "missing-selected-store"
+    env = dict(os.environ, PYTHONPATH=str(SRC_ROOT), PYTHONDONTWRITEBYTECODE="1",
+               ABYSS_MACHINE_ARTIFACT_SUBJECT_STORE_ISOLATED_ROOT=str(selected),
+               ABYSS_MACHINE_ARTIFACT_SUBJECT_STORE_ROOT=str(tmp_path / "ambient"))
+    result = subprocess.run([sys.executable, "-m", "abyss_machine.cli", "artifacts", "paths", "--json"],
+                            cwd=tmp_path, env=env, capture_output=True, text=True, timeout=20)
+    assert result.returncode == 0, result.stderr
+    scope = json.loads(result.stdout)["artifact_subject_store"]["search_scope"]
+    assert scope["mode"] == "isolated" and scope["roots"] == [str(selected)]
+    assert not selected.exists()
+
+
 def test_portable_path_ref_for_external_paths_is_cwd_independent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     bundle = tmp_path / "job-123" / "bundle"
     bundle.mkdir(parents=True)

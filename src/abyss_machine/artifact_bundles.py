@@ -4373,6 +4373,21 @@ def _default_slsa_build_type(artifact_class: str) -> str:
 
 
 def _artifact_subject_store_roots() -> list[Path]:
+    isolated = os.environ.get("ABYSS_MACHINE_ARTIFACT_SUBJECT_STORE_ISOLATED_ROOT")
+    if isolated is not None:
+        path = Path(isolated)
+        if (
+            not isolated.strip()
+            or "\x00" in isolated
+            or not path.is_absolute()
+            or ".." in path.parts
+            or path == Path("/")
+        ):
+            raise ValueError("isolated artifact subject store must be a non-root absolute path")
+        # A selected consumer must not obtain evidence from ambient search roots.
+        # Existence is deliberately not required: an empty/missing store is a
+        # valid negative precondition before materialization.
+        return [path]
     raw_roots: list[str] = []
     for name in ("ABYSS_MACHINE_ARTIFACT_SUBJECT_STORE_ROOTS", "ABYSS_MACHINE_ARTIFACT_SUBJECT_STORE_ROOT"):
         raw = os.environ.get(name)
@@ -4394,6 +4409,19 @@ def _artifact_subject_store_roots() -> list[Path]:
         seen.add(key)
         roots.append(path)
     return roots
+
+
+def artifact_subject_store_scope() -> dict[str, Any]:
+    """Read-only capability and exact search scope for isolated CLI consumers."""
+    return {
+        "schema_version": "abyss_machine_artifact_subject_store_scope_v1",
+        "mode": (
+            "isolated"
+            if "ABYSS_MACHINE_ARTIFACT_SUBJECT_STORE_ISOLATED_ROOT" in os.environ
+            else "ambient"
+        ),
+        "roots": [str(path) for path in _artifact_subject_store_roots()],
+    }
 
 
 def artifact_subject_store_dir(subjects: dict[str, Any], *, store_root: Path | None = None) -> Path:
