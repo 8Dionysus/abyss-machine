@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 25146928,
+  "allowed_tracked_bytes": 30800927,
+  "approved_by": "repository-owner",
+  "base_ref": "becc02d492edd0f8165643f004cc46972941dd2f",
+  "changed_generated_bytes": 25146928,
+  "changed_generated_files": 323,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "00bd7df0a5dc37b2309e025a1fb0d8d8fb52a4419e663a125567f5c584c5c455",
+  "reason": "Refresh the owner-generated portable family for the explicit isolated artifact-subject-store resolver, CLI capability, regression cases, documentation and ABI companion. Authorize only this measured generated delta at its exact digest; no host activation or broader policy change.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 30800927,
+  "tracked_bytes_max": 27262976
+}
