@@ -168,6 +168,16 @@ the signed `artifact.subjects.json` against
 `/var/lib/abyss-machine/artifacts/subjects` when the source artifact path is
 not available.
 
+An isolated consumer or rehearsal can set
+`ABYSS_MACHINE_ARTIFACT_SUBJECT_STORE_ISOLATED_ROOT` to one absolute, non-root
+directory. Every implicit subject-store search then uses only that directory;
+the ambient root variables and system default are excluded. A missing directory
+remains a missing store, with no fallback. Empty, relative or parent-traversing
+values fail closed. `artifacts paths` reports the effective `search_scope` so a
+consumer can require this capability before producing or admitting evidence.
+Explicit API or materialization `store_root` arguments still select their named
+target; callers should select the same root for search and materialization.
+
 The `code_intelligence_provider.bundle.json` manifest is the dedicated
 code-intelligence provider plane. One aggregate subject inventory binds the
 Universal Ctags, Node (Tree-sitter/SCIP/LSP), and adjacent

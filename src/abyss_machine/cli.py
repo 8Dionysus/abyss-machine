@@ -13046,6 +13046,7 @@ def artifacts_paths() -> dict[str, Any]:
         },
         "artifact_subject_store": {
             "root": str(artifact_bundles.DEFAULT_ARTIFACT_SUBJECT_STORE_ROOT),
+            "search_scope": artifact_bundles.artifact_subject_store_scope(),
             "materialize_command": "abyss-machine artifacts materialize-subjects BUNDLE_DIR --manifest OWNER_MANIFEST --json",
             "verify_rule": "artifact bundle verification checks signed artifact.subjects.json against this local store when the source subject path is not present",
         },
