@@ -45800,46 +45800,91 @@ def maps_start_markdown(data: dict[str, Any]) -> str:
 
 def write_machine_maps_files(data: dict[str, Any], entries_by_axis: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
     errors: list[dict[str, Any]] = []
-    for error in [
-        safe_atomic_write_json(MAPS_LATEST_PATH, data, 0o664),
-        safe_atomic_write_json(MAPS_INDEX_PATH, maps_index_document(data), 0o664),
-        safe_atomic_write_text(MAPS_START_PATH, maps_start_markdown(data), 0o664),
-        safe_append_jsonl(ai_daily_jsonl_path(MAPS_ROOT), data, 0o664),
-    ]:
-        if error:
-            errors.append(error)
-    axis_lookup = {axis["axis"]: axis for axis in maps_axis_definitions()}
-    for axis_id, entries in entries_by_axis.items():
-        axis_root = MAPS_ROOT / axis_id
-        entries_root = axis_root / "entries"
-        try:
-            entries_root.mkdir(parents=True, exist_ok=True)
-        except OSError as exc:
-            errors.append({"path": str(entries_root), "error": str(exc)})
-            continue
-        axis_doc = {
-            "schema": f"{SCHEMA_PREFIX}_maps_axis_index_v1",
-            "version": VERSION,
-            "generated_at": data.get("generated_at"),
-            "axis": axis_id,
-            "question": axis_lookup.get(axis_id, {}).get("question"),
-            "truth_status": data.get("truth_status"),
-            "entry_count": len(entries),
-            "entries": entries,
-        }
-        for error in [
-            safe_atomic_write_json(axis_root / "index.json", axis_doc, 0o664),
-            safe_atomic_write_text(axis_root / "INDEX.md", maps_axis_index_markdown(axis_lookup.get(axis_id, {"axis": axis_id, "question": axis_id}), entries), 0o664),
-        ]:
-            if error:
-                errors.append(error)
-        if nested_get(maps_policy_document(), ["limits", "write_entry_files"]) is False:
-            continue
-        for entry in entries:
-            filename = re.sub(r"[^a-zA-Z0-9_.:-]+", "-", str(entry.get("id") or stable_hash_json(entry, 16))).strip("-")
-            error = safe_atomic_write_json(entries_root / f"{filename}.json", entry, 0o664)
-            if error:
-                errors.append(error)
+    try:
+        MAPS_ROOT.mkdir(parents=True, exist_ok=True)
+        if MAPS_ROOT.is_symlink():
+            raise OSError("maps root must not be a symlink")
+        flags = os.O_RDONLY | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW
+        lock_fd = os.open(MAPS_ROOT / ".write.lock", flags, 0o664)
+        with os.fdopen(lock_fd, "rb") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            axis_lookup = {axis["axis"]: axis for axis in maps_axis_definitions()}
+            write_entries = nested_get(maps_policy_document(), ["limits", "write_entry_files"]) is not False
+            published: dict[Path, tuple[str, set[str]]] = {}
+            for axis_id, entries in entries_by_axis.items():
+                axis_root = MAPS_ROOT / axis_id
+                entries_root = axis_root / "entries"
+                if axis_id not in axis_lookup or axis_root.is_symlink() or entries_root.is_symlink():
+                    errors.append({"path": str(axis_root), "error": "unknown or symlinked maps axis"})
+                    continue
+                try:
+                    entries_root.mkdir(parents=True, exist_ok=True)
+                except OSError as exc:
+                    errors.append({"path": str(entries_root), "error": str(exc)})
+                    continue
+                axis_errors: list[dict[str, Any]] = []
+                expected: set[str] = set()
+                if write_entries:
+                    for entry in entries:
+                        filename = re.sub(r"[^a-zA-Z0-9_.:-]+", "-", str(entry.get("id") or stable_hash_json(entry, 16))).strip("-") + ".json"
+                        expected.add(filename)
+                        error = safe_atomic_write_json(entries_root / filename, entry, 0o664)
+                        if error:
+                            axis_errors.append(error)
+                if axis_errors:
+                    errors.extend(axis_errors)
+                    continue
+                axis_doc = {
+                    "schema": f"{SCHEMA_PREFIX}_maps_axis_index_v1",
+                    "version": VERSION,
+                    "generated_at": data.get("generated_at"),
+                    "axis": axis_id,
+                    "question": axis_lookup[axis_id].get("question"),
+                    "truth_status": data.get("truth_status"),
+                    "entry_count": len(entries),
+                    "entries": entries,
+                }
+                for error in [
+                    safe_atomic_write_json(axis_root / "index.json", axis_doc, 0o664),
+                    safe_atomic_write_text(axis_root / "INDEX.md", maps_axis_index_markdown(axis_lookup[axis_id], entries), 0o664),
+                ]:
+                    if error:
+                        axis_errors.append(error)
+                errors.extend(axis_errors)
+                if write_entries and not axis_errors:
+                    published[entries_root] = (axis_id, expected)
+            if errors:
+                return errors
+            for error in [
+                safe_atomic_write_json(MAPS_LATEST_PATH, data, 0o664),
+                safe_atomic_write_json(MAPS_INDEX_PATH, maps_index_document(data), 0o664),
+                safe_atomic_write_text(MAPS_START_PATH, maps_start_markdown(data), 0o664),
+                safe_append_jsonl(ai_daily_jsonl_path(MAPS_ROOT), data, 0o664),
+            ]:
+                if error:
+                    errors.append(error)
+            if errors:
+                return errors
+            # Prune only displaced generated cards after successful publication.
+            # The same lock serializes publication and pruning across writers.
+            for entries_root, (axis_id, expected) in published.items():
+                pattern = re.compile(re.escape(axis_id) + r":[0-9a-f]{16}\.json")
+                with os.scandir(entries_root) as cards:
+                    for card in cards:
+                        if card.name in expected or not pattern.fullmatch(card.name) or not card.is_file(follow_symlinks=False):
+                            continue
+                        if card.stat(follow_symlinks=False).st_nlink != 1:
+                            continue
+                        path = Path(card.path)
+                        try:
+                            old = json.loads(path.read_text(encoding="utf-8"))
+                        except (ValueError, UnicodeError):
+                            continue
+                        if not isinstance(old, dict) or old.get("schema") != f"{SCHEMA_PREFIX}_maps_entry_v1" or old.get("axis") != axis_id or old.get("id") != path.stem or old.get("truth_status") != "generated_route_signal_not_source_truth":
+                            continue
+                        path.unlink()
+    except OSError as exc:
+        errors.append({"path": str(MAPS_ROOT), "error": str(exc)})
     return errors
 
 
