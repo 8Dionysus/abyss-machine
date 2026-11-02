@@ -23,6 +23,75 @@
       "items": {
         "type": "string"
       }
+    },
+    "secondary_write_routes": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "root",
+          "kind",
+          "owner_uid",
+          "mount"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "root": {
+            "type": "string",
+            "pattern": "^/"
+          },
+          "kind": {
+            "const": "benchmark"
+          },
+          "owner_uid": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "mount": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "mountpoint",
+              "device",
+              "filesystem",
+              "source",
+              "root"
+            ],
+            "properties": {
+              "mountpoint": {
+                "type": "string",
+                "minLength": 1
+              },
+              "device": {
+                "type": "string",
+                "minLength": 1
+              },
+              "filesystem": {
+                "type": "string",
+                "minLength": 1
+              },
+              "source": {
+                "type": "string",
+                "minLength": 1
+              },
+              "root": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uuid": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

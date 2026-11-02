@@ -23,7 +23,7 @@ import stat
 import tempfile
 from typing import Any, Callable, Mapping
 
-from .storage_adapters import disk_usage_summary, existing_ancestor
+from .storage_adapters import disk_usage_summary, existing_ancestor, secondary_benchmark_protection, filesystem_capacity_key
 
 
 SCHEMA = "abyss_machine_storage_write_reservation_v1"
@@ -89,12 +89,42 @@ def _read(path: Path) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
-def _filesystem_key(path: Path) -> str:
-    anchor = existing_ancestor(path)
-    try:
-        return _filesystem_key_for_device(int(anchor.stat().st_dev))
-    except OSError:
-        return f"anchor:{anchor}"
+def _filesystem_key(path: Path) -> str | None:
+    return filesystem_capacity_key(path)
+
+
+def _record_filesystem_key(record: Mapping[str, Any]) -> str | None:
+    """Join legacy dev leases to the currently bound pool without rewriting them."""
+    key = str(record.get("filesystem_key") or "")
+    if key.startswith("btrfs:"):
+        return key
+    if not key.startswith("dev:") or not record.get("target"):
+        return None
+    target = Path(str(record["target"]))
+    device = _target_filesystem_device(target)
+    if device is None or key != _filesystem_key_for_device(device):
+        return None
+    current = _filesystem_key(target)
+    if current and current.startswith("btrfs:"):
+        metadata = record.get("route_metadata")
+        binding = metadata.get("archive_binding") if isinstance(metadata, Mapping) else None
+        uuid = binding.get("uuid") if isinstance(binding, Mapping) else None
+        if not uuid or current != f"btrfs:{uuid}":
+            return None
+    return current
+
+
+def _pool_records(records: list[dict[str, Any]], key: str | None) -> tuple[list[dict[str, Any]], list[str]]:
+    selected, unknown = [], []
+    for record in records:
+        if record.get("active") is not True:
+            continue
+        record_key = _record_filesystem_key(record)
+        if record_key is None:
+            unknown.append(str(record.get("reservation_id") or ""))
+        elif record_key == key:
+            selected.append(record)
+    return selected, unknown
 
 
 def _filesystem_key_for_device(st_dev: int) -> str:
@@ -177,6 +207,11 @@ def _route_filesystem_device(target: Path, route_metadata: Mapping[str, Any] | N
         "vault_archive_capacity",
     }:
         if not _capacity_target_identity_ok(target, route_metadata):
+            return None
+        return actual_device
+    if route_metadata.get("route_kind") == "secondary_benchmark":
+        checked = secondary_benchmark_protection(target, [route_metadata.get("benchmark_route")])
+        if checked is None or checked.get("decision") != "allow_candidate":
             return None
         return actual_device
     identity = route_metadata.get("archive_binding")
@@ -387,7 +422,7 @@ def capacity_snapshot(root: Path, target: Path, *, now: dt.datetime | None = Non
         if not isinstance(available, int):
             available = usage.get("free_bytes") if isinstance(usage.get("free_bytes"), int) else None
         return {
-            "ok": True,
+            "ok": _filesystem_key(target) is not None,
             "usage": usage,
             "filesystem_key": _filesystem_key(target),
             "active_reserved_bytes": 0,
@@ -398,17 +433,15 @@ def capacity_snapshot(root: Path, target: Path, *, now: dt.datetime | None = Non
         }
     listing = list_reservations(root, now=now)
     filesystem_key = _filesystem_key(target)
-    active = [
-        item for item in listing.get("active", [])
-        if str(item.get("filesystem_key") or "") == filesystem_key
-    ]
+    active, unknown_pool_ids = _pool_records(listing.get("active", []), filesystem_key)
     usage = _capacity(target)
     available = usage.get("available_to_user_bytes")
     if not isinstance(available, int):
         available = usage.get("free_bytes") if isinstance(usage.get("free_bytes"), int) else None
     reserved = sum(max(0, int(item.get("requested_bytes") or 0)) for item in active)
     return {
-        "ok": bool(listing.get("ok", True)),
+        "ok": bool(listing.get("ok", True)) and filesystem_key is not None and not unknown_pool_ids,
+        "unknown_capacity_pool_reservation_ids": unknown_pool_ids,
         "usage": usage,
         "filesystem_key": filesystem_key,
         "active_reserved_bytes": reserved,
@@ -445,6 +478,8 @@ def acquire_reservation(
         return {"schema": SCHEMA, "ok": False, "decision": "invalid", "error": "ttl_must_be_positive", "reservation_id": reservation_id}
     target = Path(target).expanduser()
     normalized_route_metadata = dict(route_metadata) if isinstance(route_metadata, Mapping) else None
+    if normalized_route_metadata and normalized_route_metadata.get("route_kind") == "secondary_benchmark" and kind != "benchmark":
+        return {"schema": SCHEMA, "ok": False, "decision": "blocked", "error": "secondary_route_kind_mismatch"}
     with _lock(root) as handle:
         try:
             expired = _expire_unlocked(root, now)
@@ -491,7 +526,12 @@ def acquire_reservation(
                     "reservation_id": reservation_id,
                     "error": "capacity_target_identity_mismatch",
                 }
-            filesystem_key = _filesystem_key_for_device(filesystem_device)
+            filesystem_key = _filesystem_key(target)
+            if filesystem_key is None:
+                return {"schema": SCHEMA, "ok": False, "decision": "blocked", "error": "capacity_pool_identity_unavailable"}
+            pool_records, unknown_pool_ids = _pool_records(records, filesystem_key)
+            if unknown_pool_ids:
+                return {"schema": SCHEMA, "ok": False, "decision": "blocked", "error": "legacy_capacity_pool_identity_unavailable", "reservation_ids": unknown_pool_ids}
             existing = next((item for item in records if item.get("reservation_id") == reservation_id), None)
             if existing and existing.get("active") is True:
                 same_request = (
@@ -522,16 +562,6 @@ def acquire_reservation(
             # device after the capacity read.  This closes a remount window
             # without retaining a pre-lock key or silently oversubscribing a
             # route-specific namespace.
-            capacity_device = _target_filesystem_device(target)
-            if capacity_device != filesystem_device:
-                return {
-                    "schema": SCHEMA,
-                    "ok": False,
-                    "decision": "blocked",
-                    "reservation_id": reservation_id,
-                    "error": "target_filesystem_changed_during_capacity",
-                    "filesystem_key": filesystem_key,
-                }
             if not _capacity_target_identity_ok(target, normalized_route_metadata):
                 return {
                     "schema": SCHEMA,
@@ -541,13 +571,22 @@ def acquire_reservation(
                     "error": "capacity_target_identity_changed_during_capacity",
                     "filesystem_key": filesystem_key,
                 }
+            capacity_device = _target_filesystem_device(target)
+            if capacity_device != filesystem_device or _route_filesystem_device(target, normalized_route_metadata) != filesystem_device or _filesystem_key(target) != filesystem_key:
+                return {
+                    "schema": SCHEMA,
+                    "ok": False,
+                    "decision": "blocked",
+                    "reservation_id": reservation_id,
+                    "error": "target_filesystem_changed_during_capacity",
+                    "filesystem_key": filesystem_key,
+                }
             available = usage.get("available_to_user_bytes")
             if not isinstance(available, int):
                 available = usage.get("free_bytes") if isinstance(usage.get("free_bytes"), int) else None
             active_reserved = sum(
                 max(0, int(item.get("requested_bytes") or 0))
-                for item in records
-                if item.get("active") is True and str(item.get("filesystem_key") or "") == filesystem_key
+                for item in pool_records
             )
             available_after = int(available) - active_reserved - requested_bytes if isinstance(available, int) else None
             if available_after is None:

@@ -300,6 +300,7 @@
       "load_policy": "light inventory only, no full inventory, process guard interval 0 by default, no deletion",
       "rule": "This is the recurring read-only storage route. Future agents should read monitor/latest first, then pressure/cleanup-plan details if needed."
   },
+  "secondary_write_routes": [],
   "write_preflight": {
       "status": "active",
       "command": "abyss-machine storage write-preflight --kind KIND --bytes BYTES --target PATH --json",

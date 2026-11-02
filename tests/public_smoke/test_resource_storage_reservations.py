@@ -1055,3 +1055,79 @@ def test_archive_reservation_rechecks_filesystem_after_capacity_read(monkeypatch
     assert result["ok"] is False
     assert result["error"] == "target_filesystem_changed_during_capacity"
     assert not (storage_root / "records").exists()
+
+
+def test_secondary_benchmark_preflight_and_reservation_share_route(monkeypatch, tmp_path: Path) -> None:
+    from abyss_machine import storage_adapters
+    target = tmp_path / "benchmark"
+    target.mkdir(mode=0o700)
+    device = f"{os.major(target.stat().st_dev)}:{os.minor(target.stat().st_dev)}"
+    mountinfo = tmp_path / "mountinfo"
+    mountinfo.write_text(f"20 1 {device} / {tmp_path} rw - ext4 /dev/test rw\n")
+    route = {"name": "secondary", "root": str(target), "kind": "benchmark", "owner_uid": os.getuid(),
+             "mount": {"mountpoint": str(tmp_path), "device": device, "filesystem": "ext4", "source": "/dev/test", "root": "/"}}
+    original = storage_adapters.secondary_benchmark_protection
+    probe = lambda path, routes: original(path, routes, mountinfo_path=mountinfo)
+    monkeypatch.setattr(storage_adapters, "secondary_benchmark_protection", probe)
+    monkeypatch.setattr(storage_reservations, "secondary_benchmark_protection", probe)
+    monkeypatch.setattr(cli, "storage_policy_document", lambda: {"document": {"secondary_write_routes": [route]}})
+    monkeypatch.setattr(cli, "ABYSS_MACHINE_ROOT", tmp_path / "primary")
+    monkeypatch.setattr(cli, "STORAGE_RESERVATIONS_ROOT", tmp_path / "leases")
+    monkeypatch.setattr(cli, "storage_pressure", lambda **kw: {"ok": True, "summary": {}})
+    monkeypatch.setattr(cli, "run_storage_hooks", lambda *a, **kw: {"ok": True})
+    monkeypatch.setattr(cli, "disk_usage_summary", _fake_capacity)
+    monkeypatch.setattr(storage_reservations, "_capacity", lambda path, disk_usage=_fake_capacity: dict(disk_usage(path)))
+    result = cli.storage_write_preflight("benchmark", 1000, str(target / "run"), write_latest=False)
+    assert result["decision"] == "allow", result
+    assert cli.storage_write_path_protection("artifact", target)["decision"] != "allow_candidate"
+    assert cli.storage_path_protection(target)["decision"] != "allow_candidate"
+    assert cli.resource_launch_storage_reservation_kind("maintenance", str(target)) == "benchmark"
+    assert cli.resource_launch_storage_reservation_kind("maintenance", "/srv/abyss-machine/storage") == "artifact"
+    metadata = {"route_kind": "secondary_benchmark", "benchmark_route": route}
+    first = storage_reservations.acquire_reservation(tmp_path / "leases", reservation_id="a", kind="benchmark", requested_bytes=1000, target=target / "run", owner="test", route_metadata=metadata, disk_usage=_fake_capacity)
+    assert first["ok"], first
+    wrong_kind = storage_reservations.acquire_reservation(tmp_path / "leases", reservation_id="wrong", kind="artifact", requested_bytes=1000, target=target, owner="test", route_metadata=metadata, disk_usage=_fake_capacity)
+    assert wrong_kind["error"] == "secondary_route_kind_mismatch"
+    joined_cli = cli.storage_reservation_acquire(reservation_id="cli", kind="benchmark", requested_bytes=500, target=str(target / "run"), owner="test", ttl_seconds=60)
+    assert joined_cli["ok"], joined_cli
+    assert joined_cli["reservation"]["route_metadata"]["route_kind"] == "secondary_benchmark"
+    ordinary = storage_reservations.capacity_snapshot(tmp_path / "leases", tmp_path)
+    assert ordinary["active_reserved_bytes"] == 1500
+    mountinfo.write_text(f"20 1 {device} / {tmp_path} rw - ext4 /dev/changed rw\n")
+    denied = storage_reservations.acquire_reservation(tmp_path / "leases", reservation_id="b", kind="benchmark", requested_bytes=1000, target=target, owner="test", route_metadata=metadata, disk_usage=_fake_capacity)
+    assert not denied["ok"]
+    mountinfo.write_text(f"20 1 {device} / {tmp_path} rw - ext4 /dev/test rw\n")
+    def changed_during_capacity(path, **kwargs):
+        mountinfo.write_text(f"20 1 {device} / {tmp_path} rw - ext4 /dev/changed rw\n")
+        return _fake_capacity(path)
+    raced = storage_reservations.acquire_reservation(tmp_path / "leases", reservation_id="race", kind="benchmark", requested_bytes=1000, target=target, owner="test", route_metadata=metadata, disk_usage=changed_during_capacity)
+    assert not raced["ok"]
+
+
+def test_btrfs_pool_joins_legacy_subvolume_leases_and_denies_unknown(monkeypatch, tmp_path: Path) -> None:
+    root = tmp_path / "leases"
+    vault, scratch = tmp_path / "vault", tmp_path / "scratch"
+    vault.mkdir(); scratch.mkdir()
+    pool = "btrfs:one-uuid"
+    monkeypatch.setattr(storage_reservations, "_target_filesystem_device", lambda path: 86 if path == vault else 91)
+    monkeypatch.setattr(storage_reservations, "_filesystem_key", lambda path: pool)
+    monkeypatch.setattr(storage_reservations, "_capacity", lambda path, disk_usage=_fake_capacity: dict(disk_usage(path)))
+    legacy = storage_reservations.acquire_reservation(root, reservation_id="legacy", kind="artifact", requested_bytes=100, target=vault, owner="test", disk_usage=_fake_capacity)
+    assert legacy["ok"]
+    record = legacy["reservation"]
+    record["filesystem_key"] = "dev:86"
+    record["route_metadata"] = {"archive_binding": {"st_dev": 86, "uuid": "one-uuid"}}
+    storage_reservations._atomic_write(storage_reservations._reservation_path(root, "legacy"), record)
+    blocked = storage_reservations.acquire_reservation(root, reservation_id="oversubscribed", kind="benchmark", requested_bytes=9_999_999_950, target=scratch, owner="test", disk_usage=_fake_capacity)
+    assert blocked["error"] == "available_capacity_after_reservations_below_policy"
+    assert blocked["active_reserved_bytes"] == 100
+    new = storage_reservations.acquire_reservation(root, reservation_id="new", kind="benchmark", requested_bytes=1000, target=scratch, owner="test", disk_usage=_fake_capacity)
+    assert new["ok"]
+    assert new["reservation"]["filesystem_key"] == pool
+    assert storage_reservations.capacity_snapshot(root, vault)["active_reserved_bytes"] == 1100
+    # An old lease whose original device is no longer observable blocks admission.
+    record["filesystem_key"] = "dev:999"
+    storage_reservations._atomic_write(storage_reservations._reservation_path(root, "legacy"), record)
+    assert not storage_reservations.capacity_snapshot(root, scratch)["ok"]
+    denied = storage_reservations.acquire_reservation(root, reservation_id="unknown", kind="benchmark", requested_bytes=1, target=scratch, owner="test", disk_usage=_fake_capacity)
+    assert denied["error"] == "legacy_capacity_pool_identity_unavailable"

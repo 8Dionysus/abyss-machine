@@ -476,3 +476,63 @@ def test_storage_run_hook_stage_document_rejects_invalid_stage_without_scanning(
         "error": "invalid hook stage",
         "valid_stages": ["pre_cache_cleanup"],
     }
+
+
+def test_secondary_benchmark_route_checks_mount_owner_kind_and_symlinks(tmp_path: Path) -> None:
+    root = tmp_path / "benchmarks"
+    root.mkdir(mode=0o700)
+    device = f"{os.major(root.stat().st_dev)}:{os.minor(root.stat().st_dev)}"
+    mountinfo = tmp_path / "mountinfo"
+    mountinfo.write_text(f"20 1 {device} / {tmp_path} rw - ext4 /dev/test rw\n")
+    route = {"name": "test", "root": str(root), "kind": "benchmark", "owner_uid": os.getuid(),
+             "mount": {"mountpoint": str(tmp_path), "device": device, "filesystem": "ext4", "source": "/dev/test", "root": "/"}}
+    check = lambda target, configured: storage_adapters.secondary_benchmark_protection(target, [configured], mountinfo_path=mountinfo)
+    assert check(root / "new" / "run", route)["decision"] == "allow_candidate"
+    assert check(tmp_path / "unknown", route) is None
+    for invalid in ({**route, "owner_uid": os.getuid() + 1}, {**route, "kind": "artifact"},
+                    {**route, "mount": {**route["mount"], "source": "/dev/other"}},
+                    {**route, "mount": {**route["mount"], "device": "0:999"}}):
+        assert check(root / "run", invalid)["decision"] == "deny"
+    (root / "link").symlink_to(tmp_path, target_is_directory=True)
+    assert check(root / "link" / "run", route)["decision"] == "deny"
+    assert check(root / ".." / "escape", route)["decision"] == "deny"
+    mountinfo.write_text(f"20 1 {device} / {tmp_path} rw - ext4 /dev/test rw\n21 20 {device} /other {root} rw - ext4 /dev/test rw\n")
+    assert check(root / "run", route)["decision"] == "deny"
+    mountinfo.write_text("1 0 0:1 / / rw - tmpfs tmpfs rw\n")
+    assert check(root / "run", route)["decision"] == "deny"
+
+
+def test_btrfs_route_accepts_anonymous_subvolume_device_only_with_uuid(monkeypatch, tmp_path: Path) -> None:
+    from abyss_machine import storage_lifecycle_adapters
+    root = tmp_path / "benchmarks"
+    root.mkdir(mode=0o700)
+    mountinfo = tmp_path / "mountinfo"
+    # Mountinfo's device deliberately differs from the subvolume's st_dev.
+    mountinfo.write_text(f"20 1 0:50 /@scratch {tmp_path} rw - btrfs /dev/test rw\n")
+    monkeypatch.setattr(storage_lifecycle_adapters, "read_vault_device_identity", lambda source: {"ok": True, "uuid": "pool-uuid"})
+    route = {"name": "btrfs", "root": str(root), "kind": "benchmark", "owner_uid": os.getuid(),
+             "mount": {"mountpoint": str(tmp_path), "device": "0:50", "filesystem": "btrfs", "source": "/dev/test", "root": "/@scratch", "uuid": "pool-uuid"}}
+    result = storage_adapters.secondary_benchmark_protection(root / "run", [route], mountinfo_path=mountinfo)
+    assert result["decision"] == "allow_candidate"
+    route["mount"]["uuid"] = "different-pool"
+    assert storage_adapters.secondary_benchmark_protection(root, [route], mountinfo_path=mountinfo)["decision"] == "deny"
+
+
+def test_capacity_pool_follows_existing_cross_filesystem_alias(monkeypatch, tmp_path: Path) -> None:
+    from types import SimpleNamespace
+    from abyss_machine import storage_lifecycle_adapters
+    lexical = Path("/home/test/alias")
+    resolved = Path("/srv/test/target")
+    mountinfo = tmp_path / "mountinfo-alias"
+    mountinfo.write_text("1 0 0:50 / / rw - btrfs /dev/root rw\n2 1 8:1 / /srv rw - ext4 /dev/srv rw\n")
+    original_resolve = Path.resolve
+    original_stat = Path.stat
+    monkeypatch.setattr(storage_adapters, "existing_ancestor", lambda path: lexical)
+    monkeypatch.setattr(Path, "resolve", lambda path, **kw: resolved if path == lexical else original_resolve(path, **kw))
+    monkeypatch.setattr(Path, "stat", lambda path, **kw: SimpleNamespace(st_dev=1234) if path == lexical else original_stat(path, **kw))
+    original_mount = storage_adapters.mounted_filesystem
+    monkeypatch.setattr(storage_adapters, "mounted_filesystem", lambda path: original_mount(path, mountinfo_path=mountinfo))
+    def unexpected_btrfs_reader(source):
+        raise AssertionError("Alias target is ext4; lexical Btrfs lookup would be wrong")
+    monkeypatch.setattr(storage_lifecycle_adapters, "read_vault_device_identity", unexpected_btrfs_reader)
+    assert storage_adapters.filesystem_capacity_key(lexical) == "dev:1234"
