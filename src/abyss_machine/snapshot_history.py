@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import base64
 import binascii
-from compression import zstd
+try:
+    from compression import zstd
+except ImportError:  # Python 3.11 and 3.12 use the host's libzstd.
+    zstd = None
 from contextlib import contextmanager
 import fcntl
 import hashlib
@@ -24,6 +27,80 @@ MAX_TAIL_BYTES = 16 * 1024 * 1024
 
 class HistoryError(ValueError):
     pass
+
+
+def _libzstd():
+    # Load only when a delta is actually used; ordinary CLI imports stay portable.
+    import ctypes
+    import ctypes.util
+
+    name = ctypes.util.find_library('zstd')
+    if not name:
+        raise HistoryError('libzstd is required for snapshot deltas')
+    lib = ctypes.CDLL(name)
+    void = ctypes.c_void_p
+    size = ctypes.c_size_t
+    for function, args, result in (
+        ('ZSTD_createCCtx', (), void),
+        ('ZSTD_createDCtx', (), void),
+        ('ZSTD_freeCCtx', (void,), size),
+        ('ZSTD_freeDCtx', (void,), size),
+        ('ZSTD_compressBound', (size,), size),
+        ('ZSTD_compress_usingDict', (void, void, size, void, size, void, size, ctypes.c_int), size),
+        ('ZSTD_decompress_usingDict', (void, void, size, void, size, void, size), size),
+        ('ZSTD_findFrameCompressedSize', (void, size), size),
+        ('ZSTD_isError', (size,), ctypes.c_uint),
+    ):
+        method = getattr(lib, function)
+        method.argtypes, method.restype = args, result
+    return lib
+
+
+def _compress(raw: bytes, previous: bytes) -> bytes:
+    if zstd is not None:
+        return zstd.compress(raw, level=3, zstd_dict=zstd.ZstdDict(previous, is_raw=True))
+    import ctypes
+    lib = _libzstd()
+    ctx = lib.ZSTD_createCCtx()
+    if not ctx:
+        raise HistoryError('cannot allocate Zstandard compressor')
+    try:
+        bound = lib.ZSTD_compressBound(len(raw))
+        out = ctypes.create_string_buffer(bound)
+        length = lib.ZSTD_compress_usingDict(ctx, out, bound, raw, len(raw), previous, len(previous), 3)
+        if lib.ZSTD_isError(length):
+            raise HistoryError('cannot compress snapshot delta')
+        return out.raw[:length]
+    finally:
+        lib.ZSTD_freeCCtx(ctx)
+
+
+def _decompress(frame: bytes, previous: bytes, size: int) -> bytes:
+    if zstd is not None:
+        try:
+            decoder = zstd.ZstdDecompressor(zstd_dict=zstd.ZstdDict(previous, is_raw=True))
+            decoded = decoder.decompress(frame, max_length=size + 1)
+        except zstd.ZstdError as exc:
+            raise HistoryError('invalid snapshot delta frame') from exc
+        if not decoder.eof or decoder.unused_data or len(decoded) != size:
+            raise HistoryError('snapshot delta size/frame mismatch')
+        return decoded
+    import ctypes
+    lib = _libzstd()
+    frame_size = lib.ZSTD_findFrameCompressedSize(frame, len(frame))
+    if lib.ZSTD_isError(frame_size) or frame_size != len(frame):
+        raise HistoryError('snapshot delta size/frame mismatch')
+    ctx = lib.ZSTD_createDCtx()
+    if not ctx:
+        raise HistoryError('cannot allocate Zstandard decompressor')
+    try:
+        out = ctypes.create_string_buffer(size + 1)
+        length = lib.ZSTD_decompress_usingDict(ctx, out, size + 1, frame, len(frame), previous, len(previous))
+        if lib.ZSTD_isError(length) or length != size:
+            raise HistoryError('snapshot delta size/frame mismatch')
+        return out.raw[:length]
+    finally:
+        lib.ZSTD_freeDCtx(ctx)
 
 
 @contextmanager
@@ -67,12 +144,9 @@ class Decoder:
                 raise HistoryError('invalid snapshot delta payload')
             try:
                 compressed = base64.b64decode(encoded, validate=True)
-                decoder = zstd.ZstdDecompressor(zstd_dict=zstd.ZstdDict(self.previous, is_raw=True))
-                decoded = decoder.decompress(compressed, max_length=size + 1)
-            except (binascii.Error, zstd.ZstdError) as exc:
+                decoded = _decompress(compressed, self.previous, size)
+            except binascii.Error as exc:
                 raise HistoryError('invalid snapshot delta frame') from exc
-            if not decoder.eof or decoder.unused_data or len(decoded) != size:
-                raise HistoryError('snapshot delta size/frame mismatch')
             if item.get('sha256') != digest(decoded):
                 raise HistoryError('snapshot delta content checksum mismatch')
             value = json.loads(decoded)
@@ -90,7 +164,7 @@ class Decoder:
 def encode(raw: bytes, previous: bytes | None, chain: int) -> bytes:
     if previous is None or chain >= MAX_CHAIN or not 4096 <= len(raw) <= MAX_RECORD_BYTES:
         return raw
-    compressed = zstd.compress(raw, level=3, zstd_dict=zstd.ZstdDict(previous, is_raw=True))
+    compressed = _compress(raw, previous)
     wrapped = json.dumps({
         'schema': SCHEMA, 'bytes': len(raw), 'chain': chain + 1,
         'base_sha256': digest(previous), 'sha256': digest(raw),
