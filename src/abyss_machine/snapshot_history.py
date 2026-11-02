@@ -14,6 +14,7 @@ except ImportError:  # Python 3.11 and 3.12 use the host's libzstd.
     zstd = None
 from contextlib import contextmanager
 import fcntl
+from functools import lru_cache
 import hashlib
 import json
 import os
@@ -29,6 +30,7 @@ class HistoryError(ValueError):
     pass
 
 
+@lru_cache(maxsize=1)
 def _libzstd():
     # Load only when a delta is actually used; ordinary CLI imports stay portable.
     import ctypes
@@ -37,7 +39,10 @@ def _libzstd():
     name = ctypes.util.find_library('zstd')
     if not name:
         raise HistoryError('libzstd is required for snapshot deltas')
-    lib = ctypes.CDLL(name)
+    try:
+        lib = ctypes.CDLL(name)
+    except OSError as exc:
+        raise HistoryError('libzstd is required for snapshot deltas') from exc
     void = ctypes.c_void_p
     size = ctypes.c_size_t
     for function, args, result in (
