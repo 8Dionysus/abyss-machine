@@ -516,3 +516,23 @@ def test_btrfs_route_accepts_anonymous_subvolume_device_only_with_uuid(monkeypat
     assert result["decision"] == "allow_candidate"
     route["mount"]["uuid"] = "different-pool"
     assert storage_adapters.secondary_benchmark_protection(root, [route], mountinfo_path=mountinfo)["decision"] == "deny"
+
+
+def test_capacity_pool_follows_existing_cross_filesystem_alias(monkeypatch, tmp_path: Path) -> None:
+    from types import SimpleNamespace
+    from abyss_machine import storage_lifecycle_adapters
+    lexical = Path("/home/test/alias")
+    resolved = Path("/srv/test/target")
+    mountinfo = tmp_path / "mountinfo-alias"
+    mountinfo.write_text("1 0 0:50 / / rw - btrfs /dev/root rw\n2 1 8:1 / /srv rw - ext4 /dev/srv rw\n")
+    original_resolve = Path.resolve
+    original_stat = Path.stat
+    monkeypatch.setattr(storage_adapters, "existing_ancestor", lambda path: lexical)
+    monkeypatch.setattr(Path, "resolve", lambda path, **kw: resolved if path == lexical else original_resolve(path, **kw))
+    monkeypatch.setattr(Path, "stat", lambda path, **kw: SimpleNamespace(st_dev=1234) if path == lexical else original_stat(path, **kw))
+    original_mount = storage_adapters.mounted_filesystem
+    monkeypatch.setattr(storage_adapters, "mounted_filesystem", lambda path: original_mount(path, mountinfo_path=mountinfo))
+    def unexpected_btrfs_reader(source):
+        raise AssertionError("Alias target is ext4; lexical Btrfs lookup would be wrong")
+    monkeypatch.setattr(storage_lifecycle_adapters, "read_vault_device_identity", unexpected_btrfs_reader)
+    assert storage_adapters.filesystem_capacity_key(lexical) == "dev:1234"

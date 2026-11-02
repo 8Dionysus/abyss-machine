@@ -1088,8 +1088,11 @@ def test_secondary_benchmark_preflight_and_reservation_share_route(monkeypatch, 
     assert first["ok"], first
     wrong_kind = storage_reservations.acquire_reservation(tmp_path / "leases", reservation_id="wrong", kind="artifact", requested_bytes=1000, target=target, owner="test", route_metadata=metadata, disk_usage=_fake_capacity)
     assert wrong_kind["error"] == "secondary_route_kind_mismatch"
+    joined_cli = cli.storage_reservation_acquire(reservation_id="cli", kind="benchmark", requested_bytes=500, target=str(target / "run"), owner="test", ttl_seconds=60)
+    assert joined_cli["ok"], joined_cli
+    assert joined_cli["reservation"]["route_metadata"]["route_kind"] == "secondary_benchmark"
     ordinary = storage_reservations.capacity_snapshot(tmp_path / "leases", tmp_path)
-    assert ordinary["active_reserved_bytes"] == 1000
+    assert ordinary["active_reserved_bytes"] == 1500
     mountinfo.write_text(f"20 1 {device} / {tmp_path} rw - ext4 /dev/changed rw\n")
     denied = storage_reservations.acquire_reservation(tmp_path / "leases", reservation_id="b", kind="benchmark", requested_bytes=1000, target=target, owner="test", route_metadata=metadata, disk_usage=_fake_capacity)
     assert not denied["ok"]

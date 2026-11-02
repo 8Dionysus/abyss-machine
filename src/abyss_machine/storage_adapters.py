@@ -774,7 +774,7 @@ def _execute_age_based_temp_cleanup(path: Path, *, age_days: float, clock: Clock
 def mounted_filesystem(path: Path, *, mountinfo_path: Path = Path("/proc/self/mountinfo")) -> dict[str, str] | None:
     """Read the unique deepest visible mount without equating Btrfs st_dev."""
     try:
-        anchor = existing_ancestor(path)
+        anchor = existing_ancestor(path).resolve(strict=True)
         decode = lambda value: re.sub(r"\\([0-7]{3})", lambda m: chr(int(m[1], 8)), value)
         matches = []
         for line in mountinfo_path.read_text(encoding="utf-8").splitlines():
