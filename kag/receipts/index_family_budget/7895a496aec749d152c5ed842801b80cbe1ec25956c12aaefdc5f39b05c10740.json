@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 25554890,
+  "allowed_tracked_bytes": 30870237,
+  "approved_by": "repository-owner",
+  "base_ref": "1a61c90a1ad8b376747794cad09c878b8150761b",
+  "changed_generated_bytes": 25554890,
+  "changed_generated_files": 321,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "7895a496aec749d152c5ed842801b80cbe1ec25956c12aaefdc5f39b05c10740",
+  "reason": "Recover installed secondary benchmark and Btrfs storage contract with current owner evidence",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 30870237,
+  "tracked_bytes_max": 27262976
+}
