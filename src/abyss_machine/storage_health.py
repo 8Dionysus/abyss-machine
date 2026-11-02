@@ -76,11 +76,20 @@ def measure(path: Path) -> dict:
         return {"status": "unknown", "reason": "filesystem_health_unavailable", "error": str(exc)[:200]}
 
 
+def inherit_directory_owner(fd: int, directory: Path) -> None:
+    """Keep user-owned state user-owned when a privileged command writes it."""
+    if os.geteuid() == 0:
+        owner = directory.stat()
+        os.fchown(fd, owner.st_uid, owner.st_gid)
+        os.fchmod(fd, 0o600)
+
+
 def atomic_json(path: Path, value: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     fd, temporary = tempfile.mkstemp(prefix=".health-", dir=path.parent)
     try:
         with os.fdopen(fd, "w") as stream:
+            inherit_directory_owner(stream.fileno(), path.parent)
             json.dump(value, stream, ensure_ascii=False)
             stream.write("\n")
             stream.flush()

@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 2349544,
+  "allowed_tracked_bytes": 30805709,
+  "approved_by": "repository-owner",
+  "base_ref": "6b03ac55f5723fd7357e5c1677ebe213ff4c6e55",
+  "changed_generated_bytes": 2349544,
+  "changed_generated_files": 25,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "bc26076e17f11fe0dda2ef0b02df5c7bfd1505eba6a8f67ca9d6ee50738b57a2",
+  "reason": "Recover installed privileged storage ownership; refresh the exact owner-generated family.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 30805709,
+  "tracked_bytes_max": 27262976
+}

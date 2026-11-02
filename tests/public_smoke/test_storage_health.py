@@ -33,6 +33,20 @@ def test_unallocated_device_headroom_distinguishes_metadata_pressure(tmp_path):
     assert health.btrfs_allocation(tmp_path)['status']=='ok'
 
 
+def test_privileged_forecast_inherits_owner_for_lock_and_state(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(health.os, 'geteuid', lambda: 0)
+    monkeypatch.setattr(health.os, 'fchown', lambda fd, uid, gid: calls.append((uid, gid)))
+    monkeypatch.setattr(storage_forecast, '_measure', lambda path, timestamp: {
+        'path': str(path), 'timestamp': timestamp,
+        'filesystem_key': 'one', 'available_to_user_bytes': 31 * 1024**3,
+    })
+    report = storage_forecast.observe(tmp_path / 'capacity.json', paths=(tmp_path,))
+    owner = tmp_path.stat()
+    assert report['ok'] is True
+    assert calls == [(owner.st_uid, owner.st_gid), (owner.st_uid, owner.st_gid)]
+
+
 def test_enospc_alarm_survives_normal_history_failure(monkeypatch,tmp_path):
     monkeypatch.setattr(storage_forecast,'_measure',lambda path,timestamp: {'path':str(path),'timestamp':timestamp,'filesystem_key':'one','available_to_user_bytes':31*1024**3})
     def full(*args):raise OSError(errno.ENOSPC,'test filesystem full')
