@@ -1088,6 +1088,28 @@ def test_resource_planning_keeps_operator_visible_medium_ai_uncapped_by_swap_bud
     assert plan["policy"]["static_memory_caps_applied"] is False
 
 
+def test_gate_overrides_are_scoped_and_never_override_denials() -> None:
+    args = dict(
+        workload_class="light", kind="agent", latency="balanced", unattended=True,
+        force=False, bytes_required=32, target="/srv/test", unit_type="service",
+        sample_thermal=False, policy=resource_planning.default_policy(version="test"),
+        mode={"launch_policy": {"max_unattended_class": "light"}}, memory={}, storage={},
+        game_guard={"active": False}, route={"ok": True, "allowed": True, "unattended_allowed": True},
+        thermal_plan=None, write_preflight={"decision": "cleanup_first", "allowed": False},
+        paths={}, input_latest_paths={}, thermal_unattended_cap="light", total_mem_kib=1024 * 1024,
+        generated_at="2026-01-01T00:00:00Z",
+        startup_demand={"gate": {"blocked_reasons": ["startup_memory_pressure"]}},
+    )
+    plan = resource_planning.build_plan(**args, overrides=["storage"])
+    assert plan["overridden_gates"] == ["storage"]
+    assert plan["blocked_reasons"] == ["startup_memory_pressure"]
+    plan = resource_planning.build_plan(**args, overrides=["storage", "memory"])
+    assert plan["decision"] == "allow"
+    assert plan["overridden_gates"] == ["memory", "storage"]
+    args["write_preflight"] = {"decision": "deny", "allowed": False}
+    assert resource_planning.build_plan(**args, overrides=["storage", "memory"])["decision"] == "deny"
+
+
 def test_resource_plan_keeps_storage_denial_authoritative_even_when_forced() -> None:
     data = resource_planning.build_plan(
         workload_class="medium",

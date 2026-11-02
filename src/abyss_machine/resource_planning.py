@@ -1422,6 +1422,7 @@ def build_plan(
     generated_at: str,
     startup_demand: dict[str, Any] | None = None,
     activity: str | None = None,
+    overrides: list[str] | None = None,
 ) -> dict[str, Any]:
     normalized_class = normalize_class(workload_class)
     normalized_kind = normalize_kind(kind)
@@ -1493,8 +1494,19 @@ def build_plan(
     denied = list(dict.fromkeys(denied))
     warnings = list(dict.fromkeys(warnings))
 
-    overridden = list(blocked) if force_effective else []
-    effective_blocked = [] if force_effective else blocked
+    selected_overrides = set(overrides or [])
+    valid_overrides = {"storage", "memory", "cpu", "thermal", "game", "mode"}
+    if selected_overrides - valid_overrides:
+        raise ValueError("unknown override gate")
+    demand_blocks = {str(item) for item in demand_gate.get("blocked_reasons", []) or []}
+    def gate_for(reason: str) -> str:
+        if reason in storage_blocked:
+            return "storage"
+        if reason in demand_blocks:
+            return "memory"
+        return reason.split("_", 1)[0]
+    overridden = [reason for reason in blocked if force_effective or gate_for(reason) in selected_overrides]
+    effective_blocked = [reason for reason in blocked if reason not in overridden]
     if denied:
         decision = "deny"
     elif effective_blocked:
@@ -1539,6 +1551,8 @@ def build_plan(
         "blocked_reasons": effective_blocked,
         "denied_reasons": denied,
         "overridden_reasons": overridden,
+        "overridden_gates": sorted({gate_for(reason) for reason in overridden}),
+        "requested_overrides": sorted(selected_overrides),
         "warnings": warnings,
         "systemd": systemd,
         "inputs": {
