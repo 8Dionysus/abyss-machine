@@ -28,7 +28,9 @@ state and capacity observations remain outside this repository.
 public template). Each route names one strict subtree of an existing mount:
 `name`, absolute `root`, `kind: "benchmark"`, numeric `owner_uid`, and `mount`
 with exact `mountpoint`, Linux `device` (`major:minor`), `filesystem`, `source`,
-and mount `root` from `/proc/self/mountinfo`. Device numbers may change after
+and mount `root` from `/proc/self/mountinfo`. Btrfs additionally requires the
+observed volume `uuid` from the existing bounded device-identity reader.
+Device numbers may change after
 remount/reboot: stale identity denies new admission and requires the host owner
 to refresh the configured facts after verifying the same intended volume.
 An absent mount cannot fall through to the parent filesystem. Configure these host facts locally;
@@ -41,8 +43,13 @@ directories must have the same owner and device.
 --kind benchmark` use this route. Resource planning and launch select the
 benchmark storage kind for the same admitted target; the workload resource
 kind retains its ordinary meaning. Reservations recheck the mount under their
-shared lock and after capacity collection, and aggregate all routes by actual
-filesystem device. This is capacity accounting, not allocated blocks, inode
+shared lock and after capacity collection. Ordinary filesystems aggregate by
+actual device. Btrfs subvolumes share one observed UUID capacity pool: their
+anonymous `st_dev` values remain target/mount identity evidence, not separate
+capacity. Existing active device-key leases join that pool only while their
+original device and recorded UUID binding still match; unresolved legacy
+leases block capacity admission pending owner reconciliation, without rewriting
+or silently dropping them. This is capacity accounting, not allocated blocks, inode
 admission, held file descriptors, semantic review, publication, or workload fit.
 The writing owner must retain custody of its target while writing.
 

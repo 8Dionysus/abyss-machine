@@ -483,9 +483,9 @@ def test_secondary_benchmark_route_checks_mount_owner_kind_and_symlinks(tmp_path
     root.mkdir(mode=0o700)
     device = f"{os.major(root.stat().st_dev)}:{os.minor(root.stat().st_dev)}"
     mountinfo = tmp_path / "mountinfo"
-    mountinfo.write_text(f"20 1 {device} / {tmp_path} rw - btrfs /dev/test rw\n")
+    mountinfo.write_text(f"20 1 {device} / {tmp_path} rw - ext4 /dev/test rw\n")
     route = {"name": "test", "root": str(root), "kind": "benchmark", "owner_uid": os.getuid(),
-             "mount": {"mountpoint": str(tmp_path), "device": device, "filesystem": "btrfs", "source": "/dev/test", "root": "/"}}
+             "mount": {"mountpoint": str(tmp_path), "device": device, "filesystem": "ext4", "source": "/dev/test", "root": "/"}}
     check = lambda target, configured: storage_adapters.secondary_benchmark_protection(target, [configured], mountinfo_path=mountinfo)
     assert check(root / "new" / "run", route)["decision"] == "allow_candidate"
     assert check(tmp_path / "unknown", route) is None
@@ -496,7 +496,23 @@ def test_secondary_benchmark_route_checks_mount_owner_kind_and_symlinks(tmp_path
     (root / "link").symlink_to(tmp_path, target_is_directory=True)
     assert check(root / "link" / "run", route)["decision"] == "deny"
     assert check(root / ".." / "escape", route)["decision"] == "deny"
-    mountinfo.write_text(f"20 1 {device} / {tmp_path} rw - btrfs /dev/test rw\n21 20 {device} /other {root} rw - btrfs /dev/test rw\n")
+    mountinfo.write_text(f"20 1 {device} / {tmp_path} rw - ext4 /dev/test rw\n21 20 {device} /other {root} rw - ext4 /dev/test rw\n")
     assert check(root / "run", route)["decision"] == "deny"
     mountinfo.write_text("1 0 0:1 / / rw - tmpfs tmpfs rw\n")
     assert check(root / "run", route)["decision"] == "deny"
+
+
+def test_btrfs_route_accepts_anonymous_subvolume_device_only_with_uuid(monkeypatch, tmp_path: Path) -> None:
+    from abyss_machine import storage_lifecycle_adapters
+    root = tmp_path / "benchmarks"
+    root.mkdir(mode=0o700)
+    mountinfo = tmp_path / "mountinfo"
+    # Mountinfo's device deliberately differs from the subvolume's st_dev.
+    mountinfo.write_text(f"20 1 0:50 /@scratch {tmp_path} rw - btrfs /dev/test rw\n")
+    monkeypatch.setattr(storage_lifecycle_adapters, "read_vault_device_identity", lambda source: {"ok": True, "uuid": "pool-uuid"})
+    route = {"name": "btrfs", "root": str(root), "kind": "benchmark", "owner_uid": os.getuid(),
+             "mount": {"mountpoint": str(tmp_path), "device": "0:50", "filesystem": "btrfs", "source": "/dev/test", "root": "/@scratch", "uuid": "pool-uuid"}}
+    result = storage_adapters.secondary_benchmark_protection(root / "run", [route], mountinfo_path=mountinfo)
+    assert result["decision"] == "allow_candidate"
+    route["mount"]["uuid"] = "different-pool"
+    assert storage_adapters.secondary_benchmark_protection(root, [route], mountinfo_path=mountinfo)["decision"] == "deny"

@@ -770,6 +770,48 @@ def _execute_age_based_temp_cleanup(path: Path, *, age_days: float, clock: Clock
     }
 
 
+
+def mounted_filesystem(path: Path, *, mountinfo_path: Path = Path("/proc/self/mountinfo")) -> dict[str, str] | None:
+    """Read the unique deepest visible mount without equating Btrfs st_dev."""
+    try:
+        anchor = existing_ancestor(path)
+        decode = lambda value: re.sub(r"\\([0-7]{3})", lambda m: chr(int(m[1], 8)), value)
+        matches = []
+        for line in mountinfo_path.read_text(encoding="utf-8").splitlines():
+            fields = line.split()
+            separator = fields.index("-")
+            entry = {"device": fields[2], "root": decode(fields[3]),
+                     "mountpoint": decode(fields[4]), "filesystem": fields[separator + 1],
+                     "source": decode(fields[separator + 2])}
+            mountpoint = Path(entry["mountpoint"])
+            if mountpoint == anchor or mountpoint in anchor.parents:
+                matches.append(entry)
+        depth = max(len(Path(item["mountpoint"]).parts) for item in matches)
+        deepest = [item for item in matches if len(Path(item["mountpoint"]).parts) == depth]
+        return deepest[0] if len(deepest) == 1 else None
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def filesystem_capacity_key(path: Path) -> str | None:
+    """Use one UUID capacity pool for Btrfs subvolumes; ordinary FS uses st_dev."""
+    mount = mounted_filesystem(path)
+    if mount is None:
+        return None
+    try:
+        device = int(existing_ancestor(path).stat().st_dev)
+    except OSError:
+        return None
+    if mount["filesystem"] != "btrfs":
+        return f"dev:{device}"
+    # Reuse the bounded owner device-identity reader; Btrfs anonymous st_dev
+    # identifies subvolumes, not the shared block-capacity pool.
+    from .storage_lifecycle_adapters import read_vault_device_identity
+    identity = read_vault_device_identity(mount["source"])
+    if identity.get("ok") is not True or not identity.get("uuid"):
+        return None
+    return f"btrfs:{identity['uuid']}"
+
 def secondary_benchmark_protection(
     path: Path,
     routes: Any,
@@ -830,26 +872,20 @@ def secondary_benchmark_protection(
                 anchor = component
             if anchor is None:
                 return denied
-            decode = lambda value: re.sub(r"\\([0-7]{3})", lambda m: chr(int(m[1], 8)), value)
-            matches = []
-            for line in mountinfo_path.read_text(encoding="utf-8").splitlines():
-                fields = line.split()
-                separator = fields.index("-")
-                entry = {"device": fields[2], "root": decode(fields[3]),
-                         "mountpoint": decode(fields[4]), "filesystem": fields[separator + 1],
-                         "source": decode(fields[separator + 2])}
-                actual_mount = Path(entry["mountpoint"])
-                if actual_mount == anchor or actual_mount in anchor.parents:
-                    matches.append(entry)
-            if not matches:
+            actual = mounted_filesystem(anchor, mountinfo_path=mountinfo_path)
+            if actual is None or any(actual[key] != mount[key] for key in required):
                 return denied
-            depth = max(len(Path(item["mountpoint"]).parts) for item in matches)
-            deepest = [item for item in matches if len(Path(item["mountpoint"]).parts) == depth]
-            if len(deepest) != 1:
+            # Linux Btrfs uses a different anonymous st_dev per subvolume.
+            # Match target/root to the actual configured mount's stat identity,
+            # while mountinfo device/source/root remain independent bindings.
+            if mountpoint.stat().st_dev != root_stat.st_dev:
                 return denied
-            actual = deepest[0]
-            device = f"{os.major(root_stat.st_dev)}:{os.minor(root_stat.st_dev)}"
-            if any(actual[key] != mount[key] for key in required) or actual["device"] != device:
+            if actual["filesystem"] == "btrfs":
+                from .storage_lifecycle_adapters import read_vault_device_identity
+                identity = read_vault_device_identity(actual["source"])
+                if identity.get("ok") is not True or identity.get("uuid") != mount.get("uuid"):
+                    return denied
+            elif actual["device"] != f"{os.major(root_stat.st_dev)}:{os.minor(root_stat.st_dev)}":
                 return denied
         except (OSError, ValueError, IndexError):
             return denied
