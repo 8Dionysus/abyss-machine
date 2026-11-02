@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 16141589,
+  "allowed_tracked_bytes": 30822914,
+  "approved_by": "repository-owner",
+  "base_ref": "094d4259eeb077b309fbb00019cd749545f2a893",
+  "changed_generated_bytes": 16141589,
+  "changed_generated_files": 176,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "c6507e8bbd0f9037ebe1c029c440273445a8176c25004b9ae08e62a8dc37bd10",
+  "reason": "Recover installed serialized map publication; refresh the exact owner-generated family.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 30822914,
+  "tracked_bytes_max": 27262976
+}
