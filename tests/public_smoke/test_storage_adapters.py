@@ -12,6 +12,15 @@ sys.path.insert(0, str(ROOT / "src"))
 from abyss_machine import storage_adapters
 
 
+def test_capacity_pool_uses_verified_btrfs_uuid(monkeypatch, tmp_path):
+    from abyss_machine import storage_lifecycle_adapters
+    monkeypatch.setattr(storage_adapters, "mounted_filesystem", lambda _: {"filesystem": "btrfs", "source": "/dev/test"})
+    monkeypatch.setattr(storage_lifecycle_adapters, "read_vault_device_identity", lambda _: {"ok": True, "uuid": "pool"})
+    assert storage_adapters.filesystem_capacity_key(tmp_path) == "btrfs:pool"
+    monkeypatch.setattr(storage_lifecycle_adapters, "read_vault_device_identity", lambda _: {"ok": False})
+    assert storage_adapters.filesystem_capacity_key(tmp_path) is None
+
+
 def test_storage_path_text_matches_preserves_deleted_and_absolute_path_behavior() -> None:
     assert storage_adapters.path_text_matches("/srv/abyss-machine/cache", "/srv/abyss-machine/cache/model.bin")
     assert storage_adapters.path_text_matches("/srv/abyss-machine/cache", "/srv/abyss-machine/cache/model.bin (deleted)")

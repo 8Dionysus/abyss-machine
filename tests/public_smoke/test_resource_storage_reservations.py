@@ -21,11 +21,134 @@ from abyss_machine import resource_runner
 from abyss_machine import storage_reservations
 
 
+def test_terminal_launch_reconciliation_fails_closed(monkeypatch, tmp_path):
+    import subprocess
+
+    root = tmp_path / "reservations"
+    rid = "resource-launch:example.service:12345:123456789"
+    identity = rid + ":execution:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa:10"
+    result = storage_reservations.acquire_reservation(
+        root, reservation_id=rid, kind="artifact", requested_bytes=1,
+        target=tmp_path, owner="test", ttl_seconds=3600, min_free_after=0,
+        hold_until_terminal=True, execution_identity=identity,
+    )
+    assert result["ok"]
+    monkeypatch.setattr(storage_reservations.os, "kill", lambda *_: None)
+    monkeypatch.setattr(storage_reservations, "launcher_start_token", lambda _: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa:10")
+    monkeypatch.setattr(storage_reservations.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0, "LoadState=loaded\nActiveState=inactive\n"))
+    assert len(storage_reservations.expire_reservations(root)["reconciled"]) == 0
+    monkeypatch.setattr(storage_reservations, "launcher_start_token", lambda _: None)
+    assert len(storage_reservations.expire_reservations(root)["reconciled"]) == 0
+    monkeypatch.setattr(storage_reservations, "launcher_start_token", lambda _: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa:11")
+    monkeypatch.setattr(storage_reservations.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 1, ""))
+    assert len(storage_reservations.expire_reservations(root)["reconciled"]) == 0
+    monkeypatch.setattr(storage_reservations.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0, "LoadState=loaded\nActiveState=active\n"))
+    assert len(storage_reservations.expire_reservations(root)["reconciled"]) == 0
+    monkeypatch.setattr(storage_reservations.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0, "LoadState=loaded\nActiveState=failed\n"))
+    released = storage_reservations.expire_reservations(root)["reconciled"]
+    assert len(released) == 1
+    assert released[0]["release_reason"] == "unit_terminal_launcher_absent_or_reused"
+
+
+def test_legacy_terminal_reservation_releases_only_for_absent_pid(monkeypatch, tmp_path):
+    import subprocess
+
+    rid = "resource-launch:legacy.service:12345:123456789"
+    record = {"reservation_id": rid, "execution_identity": rid + ":execution"}
+    monkeypatch.setattr(storage_reservations.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 4, "LoadState=not-found\nActiveState=inactive\n"))
+    monkeypatch.setattr(storage_reservations.os, "kill", lambda *_: None)
+    assert not storage_reservations._terminal_launch_identity(record)
+    def missing(*_):
+        raise ProcessLookupError()
+    monkeypatch.setattr(storage_reservations.os, "kill", missing)
+    assert storage_reservations._terminal_launch_identity(record)
+
+
+def test_small_write_floor_uses_policy_and_large_write_keeps_full_floor(monkeypatch):
+    monkeypatch.setattr(cli, "storage_policy_document", lambda: {"document": {"write_preflight": {
+        "large_write_threshold_bytes": 1024**3, "small_write_min_free_after_bytes": 1024**3,
+    }}})
+    assert cli.storage_write_capacity_floor(32 * 1024**2)[2] == 1024**3
+    assert cli.storage_write_capacity_floor(1024**3)[2] == 5 * 1024**3
+    assert cli.storage_write_capacity_floor(100 * 1024**3)[2] == 10 * 1024**3
+
+
+def test_launch_target_from_cwd_is_passed_to_plan(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli, "resource_policy_document", lambda: {})
+    monkeypatch.setattr(cli.resource_adapters, "reservation_snapshot", lambda *a, **k: {})
+    seen = {}
+    def plan(**kwargs):
+        seen.update(kwargs)
+        return {"ok": True, "decision": "allow", "blocked_reasons": [], "denied_reasons": [], "systemd": {}}
+    monkeypatch.setattr(cli, "resource_plan", plan)
+    cli.resource_launch(["true"], dry_run=True, bytes_required=32, target_from_cwd=True, write_latest=False)
+    assert seen["target"] == str(tmp_path)
+    import pytest
+    with pytest.raises(ValueError):
+        cli.resource_launch(["true"], dry_run=True, bytes_required=32, target_from_cwd=True, same_dir=False)
+
+
+@pytest.mark.parametrize("outcome", ["allow", "deny", "timeout"])
+def test_wait_for_admission_replans_only_blocks(monkeypatch, tmp_path, outcome):
+    monkeypatch.setattr(cli.resource_adapters, "reservations_root", lambda *a, **k: tmp_path)
+    monkeypatch.setattr(cli.resource_adapters, "reservation_snapshot", lambda *a, **k: {"ok": True})
+    monkeypatch.setattr(cli, "resource_policy_document", lambda: {"startup_admission": {"enabled": False}})
+    monkeypatch.setattr(cli, "resource_systemd_command", lambda *a, **k: ["true"])
+    monkeypatch.setattr(cli.resource_adapters, "execute_systemd_launch", lambda **k: {
+        "elapsed_sec": 0, "execution": {"ok": True, "returncode": 0, "systemd": {}},
+        "lease_released": True, "demand_observation": None,
+    })
+    calls = []
+    def plan(**kwargs):
+        calls.append(kwargs)
+        denied = ["storage_denied"] if outcome == "deny" else []
+        blocked = [] if outcome == "allow" and len(calls) > 1 else ["storage_blocked"]
+        return {"ok": not blocked and not denied, "decision": "deny" if denied else "force_required" if blocked else "allow",
+                "blocked_reasons": blocked, "denied_reasons": denied,
+                "request": {"activity": {}}, "systemd": {},
+                "inputs": {"startup_demand": {"requested": {"reservation_required": False}}}}
+    monkeypatch.setattr(cli, "resource_plan", plan)
+    result = cli.resource_launch(["true"], workload_class="probe", sample_thermal=False,
+                                 wait_for_admission=0.35, write_latest=False)
+    if outcome == "allow":
+        assert len(calls) == 2 and result["ok"]
+    elif outcome == "deny":
+        assert len(calls) == 1 and not result["ok"]
+    else:
+        assert len(calls) >= 2 and not result["ok"]
+
+
 def _fake_capacity(_path: Path, **_kwargs: object) -> dict[str, int]:
     return {
         "available_to_user_bytes": 10_000_000_000,
         "free_bytes": 10_000_000_000,
     }
+
+
+def test_btrfs_subvolumes_share_pool_and_unbound_legacy_fails_closed(monkeypatch, tmp_path):
+    root = tmp_path / "leases"
+    vault, scratch = tmp_path / "vault", tmp_path / "scratch"
+    vault.mkdir()
+    scratch.mkdir()
+    pool = "btrfs:one-uuid"
+    monkeypatch.setattr(storage_reservations, "_target_filesystem_device", lambda path: 86 if path == vault else 91)
+    monkeypatch.setattr(storage_reservations, "_filesystem_key", lambda path: pool)
+    monkeypatch.setattr(storage_reservations, "_capacity", lambda path, disk_usage=_fake_capacity: dict(disk_usage(path)))
+    result = storage_reservations.acquire_reservation(root, reservation_id="legacy", kind="artifact", requested_bytes=100,
+                                                       target=vault, owner="test", disk_usage=_fake_capacity)
+    assert result["ok"]
+    record = result["reservation"]
+    record["filesystem_key"] = "dev:86"
+    record["route_metadata"] = {"archive_binding": {"st_dev": 86, "uuid": "one-uuid"}}
+    storage_reservations._atomic_write(storage_reservations._reservation_path(root, "legacy"), record)
+    blocked = storage_reservations.acquire_reservation(root, reservation_id="oversubscribed", kind="artifact",
+        requested_bytes=9_999_999_950, target=scratch, owner="test", disk_usage=_fake_capacity)
+    assert blocked["error"] == "available_capacity_after_reservations_below_policy"
+    assert blocked["active_reserved_bytes"] == 100
+    record["route_metadata"] = None
+    storage_reservations._atomic_write(storage_reservations._reservation_path(root, "legacy"), record)
+    assert not storage_reservations.capacity_snapshot(root, scratch)["ok"]
 
 
 def test_project_preflight_keeps_write_denied_but_admits_capacity_only(

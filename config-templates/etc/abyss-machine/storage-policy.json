@@ -303,6 +303,8 @@
   "secondary_write_routes": [],
   "write_preflight": {
       "status": "active",
+      "large_write_threshold_bytes": 1073741824,
+      "small_write_min_free_after_bytes": 1073741824,
       "command": "abyss-machine storage write-preflight --kind KIND --bytes BYTES --target PATH --json",
       "latest": "{{ABYSS_MACHINE_STATE}}/storage/write-preflight/latest.json",
       "daily_jsonl": "{{ABYSS_MACHINE_STATE}}/storage/write-preflight/YYYY/MM/YYYY-MM-DD.jsonl",

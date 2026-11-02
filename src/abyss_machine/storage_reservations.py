@@ -20,6 +20,7 @@ import os
 from pathlib import Path
 import re
 import stat
+import subprocess
 import tempfile
 from typing import Any, Callable, Mapping
 
@@ -282,9 +283,66 @@ def _state_errors_unlocked(root: Path) -> list[dict[str, Any]]:
     return errors
 
 
-def _expire_unlocked(root: Path, now: dt.datetime) -> list[dict[str, Any]]:
+def _terminal_launch_identity(record: Mapping[str, Any]) -> bool:
+    """Confirm both the transient unit and its original launcher are gone."""
+    identity = str(record.get("execution_identity") or "")
+    reservation_id = str(record.get("reservation_id") or "")
+    match = re.fullmatch(r"resource-launch:([A-Za-z0-9_.@-]+\.(?:service|scope)):(\d+):(\d+)", reservation_id)
+    if not match or not identity.startswith(f"{reservation_id}:execution"):
+        return False
+    unit, pid_text, _ = match.groups()
+    try:
+        result = subprocess.run(
+            ["systemctl", "--user", "show", unit, "--property=LoadState", "--property=ActiveState"],
+            capture_output=True, text=True, timeout=3, check=False,
+        )
+        values = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
+        terminal = values.get("LoadState") == "not-found" or (
+            result.returncode == 0 and values.get("LoadState") == "loaded"
+            and values.get("ActiveState") in {"inactive", "failed"}
+        )
+        if not terminal:
+            return False
+        try:
+            os.kill(int(pid_text), 0)
+        except ProcessLookupError:
+            return True
+        # Legacy identities have no process start token.  A live PID is
+        # ambiguous and must remain held.  New identities include boot ID and
+        # proc start ticks so PID reuse can be distinguished without relying
+        # on wall-clock stability.
+        suffix = identity[len(f"{reservation_id}:execution"):]
+        token = re.fullmatch(r":([0-9a-f-]{36}):(\d+)", suffix)
+        if not token:
+            return False
+        current = launcher_start_token(int(pid_text))
+        return current is not None and current != f"{token.group(1)}:{token.group(2)}"
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+        return False
+
+
+def launcher_start_token(pid: int) -> str | None:
+    try:
+        boot = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+        stat_text = Path(f"/proc/{pid}/stat").read_text()
+        ticks = int(stat_text[stat_text.rfind(")") + 2:].split()[19])
+        if not re.fullmatch(r"[0-9a-f-]{36}", boot):
+            return None
+        return f"{boot}:{ticks}"
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def _expire_unlocked(root: Path, now: dt.datetime) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     expired: list[dict[str, Any]] = []
+    reconciled: list[dict[str, Any]] = []
     for record in _records_unlocked(root):
+        if record.get("active") is True and record.get("hold_until_terminal") is True and _terminal_launch_identity(record):
+            record.update(active=False, status="released", released_at=_iso(now),
+                          hold_until_terminal=False, release_reason="unit_terminal_launcher_absent_or_reused")
+            _atomic_write(_reservation_path(root, str(record.get("reservation_id") or "")), record)
+            reconciled.append(record)
+            continue
         if record.get("active") is not True:
             continue
         deadline = _parse_time(record.get("expires_at"))
@@ -306,7 +364,7 @@ def _expire_unlocked(root: Path, now: dt.datetime) -> list[dict[str, Any]]:
         record["expired_at"] = _iso(now)
         _atomic_write(_reservation_path(root, str(record.get("reservation_id") or "")), record)
         expired.append(record)
-    return expired
+    return expired, reconciled
 
 
 def _terminal_time(record: Mapping[str, Any]) -> dt.datetime:
@@ -385,7 +443,7 @@ def list_reservations(
     now = now or _now()
     with _lock(root) as handle:
         try:
-            expired = _expire_unlocked(root, now)
+            expired, reconciled = _expire_unlocked(root, now)
             pruned = _prune_terminal_unlocked(
                 root,
                 retention_limit=terminal_retention_limit,
@@ -403,6 +461,7 @@ def list_reservations(
         "records": records,
         "active": active,
         "expired_count": len(expired),
+        "reconciled_count": len(reconciled),
         "expiry_deferred_count": len(deferred),
         "expiry_deferred": deferred,
         "pruned_count": len(pruned),
@@ -482,7 +541,7 @@ def acquire_reservation(
         return {"schema": SCHEMA, "ok": False, "decision": "blocked", "error": "secondary_route_kind_mismatch"}
     with _lock(root) as handle:
         try:
-            expired = _expire_unlocked(root, now)
+            expired, _reconciled = _expire_unlocked(root, now)
             pruned = _prune_terminal_unlocked(root)
             records = _records_unlocked(root)
             state_errors = _state_errors_unlocked(root)
@@ -718,7 +777,7 @@ def expire_reservations(
     now = now or _now()
     with _lock(root) as handle:
         try:
-            expired = _expire_unlocked(root, now)
+            expired, reconciled = _expire_unlocked(root, now)
             pruned = _prune_terminal_unlocked(
                 root,
                 retention_limit=terminal_retention_limit,
@@ -734,6 +793,8 @@ def expire_reservations(
         "generated_at": _iso(now),
         "expired": expired,
         "expired_count": len(expired),
+        "reconciled": reconciled,
+        "reconciled_count": len(reconciled),
         "expiry_deferred_count": len(deferred),
         "expiry_deferred": deferred,
         "pruned_count": len(pruned),
