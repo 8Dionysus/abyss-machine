@@ -31,7 +31,10 @@ def configured_policy():
 
 
 def applies(policy, registry_dir):
-    return policy.get('enabled') is True and Path(registry_dir).resolve() == Path(policy['registry_dir']).resolve()
+    # An isolated consumer must not trigger cleanup in the ambient subject store.
+    return ('ABYSS_MACHINE_ARTIFACT_SUBJECT_STORE_ISOLATED_ROOT' not in os.environ
+            and policy.get('enabled') is True
+            and Path(registry_dir).resolve() == Path(policy['registry_dir']).resolve())
 
 
 @contextmanager
