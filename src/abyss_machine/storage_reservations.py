@@ -23,7 +23,7 @@ import stat
 import tempfile
 from typing import Any, Callable, Mapping
 
-from .storage_adapters import disk_usage_summary, existing_ancestor
+from .storage_adapters import disk_usage_summary, existing_ancestor, secondary_benchmark_protection
 
 
 SCHEMA = "abyss_machine_storage_write_reservation_v1"
@@ -177,6 +177,11 @@ def _route_filesystem_device(target: Path, route_metadata: Mapping[str, Any] | N
         "vault_archive_capacity",
     }:
         if not _capacity_target_identity_ok(target, route_metadata):
+            return None
+        return actual_device
+    if route_metadata.get("route_kind") == "secondary_benchmark":
+        checked = secondary_benchmark_protection(target, [route_metadata.get("benchmark_route")])
+        if checked is None or checked.get("decision") != "allow_candidate":
             return None
         return actual_device
     identity = route_metadata.get("archive_binding")
@@ -445,6 +450,8 @@ def acquire_reservation(
         return {"schema": SCHEMA, "ok": False, "decision": "invalid", "error": "ttl_must_be_positive", "reservation_id": reservation_id}
     target = Path(target).expanduser()
     normalized_route_metadata = dict(route_metadata) if isinstance(route_metadata, Mapping) else None
+    if normalized_route_metadata and normalized_route_metadata.get("route_kind") == "secondary_benchmark" and kind != "benchmark":
+        return {"schema": SCHEMA, "ok": False, "decision": "blocked", "error": "secondary_route_kind_mismatch"}
     with _lock(root) as handle:
         try:
             expired = _expire_unlocked(root, now)
@@ -523,7 +530,7 @@ def acquire_reservation(
             # without retaining a pre-lock key or silently oversubscribing a
             # route-specific namespace.
             capacity_device = _target_filesystem_device(target)
-            if capacity_device != filesystem_device:
+            if capacity_device != filesystem_device or _route_filesystem_device(target, normalized_route_metadata) != filesystem_device:
                 return {
                     "schema": SCHEMA,
                     "ok": False,

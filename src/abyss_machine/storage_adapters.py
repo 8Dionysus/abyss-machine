@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 import time
 from typing import Any, Callable, Mapping, Sequence
@@ -767,3 +768,96 @@ def _execute_age_based_temp_cleanup(path: Path, *, age_days: float, clock: Clock
         "removed_dir_count": len(removed_dirs),
         "errors": errors[:50],
     }
+
+
+def secondary_benchmark_protection(
+    path: Path,
+    routes: Any,
+    *,
+    mountinfo_path: Path = Path("/proc/self/mountinfo"),
+) -> dict[str, Any] | None:
+    """Check a configured benchmark subtree without granting cleanup authority.
+
+    An existing root, exact mount identity and owner are mandatory. No path is
+    created, and ordinary capacity/reservation accounting remains on st_dev.
+    """
+    if not isinstance(routes, list):
+        return None
+    for route in routes:
+        if not isinstance(route, dict) or not isinstance(route.get("root"), str):
+            continue
+        root = Path(route["root"])
+        if not root.is_absolute() or not path.is_absolute():
+            continue
+        try:
+            path.relative_to(root)
+        except ValueError:
+            continue
+        denied = {
+            "class": "unknown", "decision": "deny", "owner": "abyss_machine",
+            "matched_root": str(root), "reason": "secondary_benchmark_identity_invalid",
+        }
+        mount = route.get("mount")
+        uid = route.get("owner_uid")
+        if (route.get("kind") != "benchmark" or not isinstance(route.get("name"), str) or not route["name"]
+                or isinstance(uid, bool) or not isinstance(uid, int) or uid < 0
+                or not isinstance(mount, dict) or ".." in path.parts or ".." in root.parts):
+            return denied
+        required = ("mountpoint", "device", "filesystem", "source", "root")
+        if any(not isinstance(mount.get(key), str) or not mount[key] for key in required):
+            return denied
+        mountpoint = Path(mount["mountpoint"])
+        if not mountpoint.is_absolute() or mountpoint == root or ".." in mountpoint.parts:
+            return denied
+        try:
+            root.relative_to(mountpoint)
+            root_stat = root.lstat()
+            if not stat.S_ISDIR(root_stat.st_mode) or root_stat.st_uid != uid or stat.S_IMODE(root_stat.st_mode) != 0o700:
+                return denied
+            anchor = None
+            for component in [*reversed(path.parents), path]:
+                if component.is_symlink():
+                    return denied
+                try:
+                    observed = component.lstat()
+                except FileNotFoundError:
+                    continue
+                if not stat.S_ISDIR(observed.st_mode):
+                    return denied
+                if component == root or root in component.parents:
+                    if observed.st_uid != uid or observed.st_dev != root_stat.st_dev:
+                        return denied
+                anchor = component
+            if anchor is None:
+                return denied
+            decode = lambda value: re.sub(r"\\([0-7]{3})", lambda m: chr(int(m[1], 8)), value)
+            matches = []
+            for line in mountinfo_path.read_text(encoding="utf-8").splitlines():
+                fields = line.split()
+                separator = fields.index("-")
+                entry = {"device": fields[2], "root": decode(fields[3]),
+                         "mountpoint": decode(fields[4]), "filesystem": fields[separator + 1],
+                         "source": decode(fields[separator + 2])}
+                actual_mount = Path(entry["mountpoint"])
+                if actual_mount == anchor or actual_mount in anchor.parents:
+                    matches.append(entry)
+            if not matches:
+                return denied
+            depth = max(len(Path(item["mountpoint"]).parts) for item in matches)
+            deepest = [item for item in matches if len(Path(item["mountpoint"]).parts) == depth]
+            if len(deepest) != 1:
+                return denied
+            actual = deepest[0]
+            device = f"{os.major(root_stat.st_dev)}:{os.minor(root_stat.st_dev)}"
+            if any(actual[key] != mount[key] for key in required) or actual["device"] != device:
+                return denied
+        except (OSError, ValueError, IndexError):
+            return denied
+        return {
+            "class": "host_owned_allowed", "decision": "allow_candidate",
+            "owner": "abyss_machine", "matched_root": str(root),
+            "reason": "configured_secondary_benchmark_route", "route_id": route["name"],
+            "route_kind": "secondary_benchmark", "benchmark_route": dict(route),
+            "cleanup_authority": False,
+        }
+    return None

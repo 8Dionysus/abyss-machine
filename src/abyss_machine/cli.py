@@ -9612,6 +9612,13 @@ def storage_vault_capacity_path_protection(
 def storage_write_path_protection(kind: str, path: Path, *, owner: str | None = None) -> dict[str, Any]:
     """Classify a write target without widening generic path protection."""
     if kind != storage_contracts.VAULT_ARCHIVE_KIND:
+        if kind == "benchmark":
+            policy = storage_policy_document()
+            secondary = storage_adapters.secondary_benchmark_protection(
+                path, policy.get("document", {}).get("secondary_write_routes", []),
+            )
+            if secondary is not None:
+                return secondary
         return storage_path_protection(path)
     archive_policy = storage_archive_policy()
     if archive_policy.get("ok") is not True:
@@ -15569,7 +15576,9 @@ def storage_reservation_acquire(
             "protection": protection,
         }
     route_metadata = None
-    if kind == storage_contracts.VAULT_ARCHIVE_KIND:
+    if protection.get("route_kind") == "secondary_benchmark":
+        route_metadata = {"route_kind": "secondary_benchmark", "benchmark_route": protection["benchmark_route"]}
+    elif kind == storage_contracts.VAULT_ARCHIVE_KIND:
         if protection.get("class") == "vault_archive_capacity":
             route_metadata = {
                 "route_kind": "vault_archive_capacity",
@@ -15627,9 +15636,11 @@ def resource_launch_storage_reservation_ttl(timeout_sec: float) -> int:
     return 3600
 
 
-def resource_launch_storage_reservation_kind(resource_kind: str) -> str:
+def resource_launch_storage_reservation_kind(resource_kind: str, target: str | None = None) -> str:
     """Use the existing write-preflight storage kind for resource launch writes."""
     _ = resource_kind
+    if target and storage_write_path_protection("benchmark", Path(target).expanduser()).get("route_kind") == "secondary_benchmark":
+        return "benchmark"
     return "artifact"
 
 
@@ -15652,7 +15663,7 @@ def storage_write_preflight(
     )
     protection = storage_write_path_protection(kind, target_path)
     capacity_protection = storage_capacity_path_protection(kind, target_path)
-    recommended = storage_preflight_recommended_target(kind, target_path)
+    recommended = str(target_path) if protection.get("route_kind") == "secondary_benchmark" else storage_preflight_recommended_target(kind, target_path)
     recommended_path = Path(recommended)
     recommended_usage = disk_usage_summary(recommended_path)
     target_usage = disk_usage_summary(target_path)
@@ -19970,7 +19981,7 @@ def resource_plan(
     if bytes_required is not None and target:
         if write_preflight is None:
             write_preflight = storage_write_preflight(
-                kind="artifact",
+                kind=resource_launch_storage_reservation_kind(kind, str(target)),
                 bytes_required=int(bytes_required),
                 target=str(target),
                 write_latest=write_latest,
@@ -20292,7 +20303,7 @@ def resource_launch(
         if bytes_required is not None and target:
             collectors["storage_write_preflight"] = (
                 lambda: storage_write_preflight(
-                    kind="artifact",
+                    kind=resource_launch_storage_reservation_kind(kind, str(target)),
                     bytes_required=int(bytes_required),
                     target=str(target),
                     write_latest=write_latest,
@@ -20561,7 +20572,7 @@ def resource_launch(
                                 target_path = Path(str(target)).expanduser()
                                 protection = storage_capacity_path_protection(
                                     resource_launch_storage_reservation_kind(
-                                        resource_valid_kind(kind)
+                                        resource_valid_kind(kind), str(target)
                                     ),
                                     target_path,
                                 )
@@ -20586,7 +20597,9 @@ def resource_launch(
                                     )
                                     try:
                                         route_metadata = None
-                                        if protection.get("class") == "user_project_capacity":
+                                        if protection.get("route_kind") == "secondary_benchmark":
+                                            route_metadata = {"route_kind": "secondary_benchmark", "benchmark_route": protection["benchmark_route"]}
+                                        elif protection.get("class") == "user_project_capacity":
                                             route_metadata = {
                                                 "route_kind": "user_project_capacity",
                                                 "target": str(target_path),
@@ -20600,7 +20613,7 @@ def resource_launch(
                                             STORAGE_RESERVATIONS_ROOT,
                                             reservation_id=str(storage_reservation_id),
                                             kind=resource_launch_storage_reservation_kind(
-                                                resource_valid_kind(kind)
+                                                resource_valid_kind(kind), str(target)
                                             ),
                                             requested_bytes=requested_storage_bytes,
                                             target=target_path,
@@ -20962,7 +20975,7 @@ def resource_launch(
             "policy": {
                 "owner": storage_reservation_owner,
                 "kind": resource_launch_storage_reservation_kind(
-                    resource_valid_kind(kind)
+                    resource_valid_kind(kind), str(target) if target else None
                 ),
                 "hold_until_terminal": bool(storage_reservation_requested),
                 "terminal_confirmation_required": True,
