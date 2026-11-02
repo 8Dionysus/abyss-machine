@@ -562,6 +562,15 @@ def acquire_reservation(
             # device after the capacity read.  This closes a remount window
             # without retaining a pre-lock key or silently oversubscribing a
             # route-specific namespace.
+            if not _capacity_target_identity_ok(target, normalized_route_metadata):
+                return {
+                    "schema": SCHEMA,
+                    "ok": False,
+                    "decision": "blocked",
+                    "reservation_id": reservation_id,
+                    "error": "capacity_target_identity_changed_during_capacity",
+                    "filesystem_key": filesystem_key,
+                }
             capacity_device = _target_filesystem_device(target)
             if capacity_device != filesystem_device or _route_filesystem_device(target, normalized_route_metadata) != filesystem_device or _filesystem_key(target) != filesystem_key:
                 return {
@@ -570,15 +579,6 @@ def acquire_reservation(
                     "decision": "blocked",
                     "reservation_id": reservation_id,
                     "error": "target_filesystem_changed_during_capacity",
-                    "filesystem_key": filesystem_key,
-                }
-            if not _capacity_target_identity_ok(target, normalized_route_metadata):
-                return {
-                    "schema": SCHEMA,
-                    "ok": False,
-                    "decision": "blocked",
-                    "reservation_id": reservation_id,
-                    "error": "capacity_target_identity_changed_during_capacity",
                     "filesystem_key": filesystem_key,
                 }
             available = usage.get("available_to_user_bytes")
