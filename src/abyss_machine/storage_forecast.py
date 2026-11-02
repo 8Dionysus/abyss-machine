@@ -7,7 +7,6 @@ import fcntl
 import json
 import os
 from pathlib import Path
-import tempfile
 from typing import Any
 
 from . import storage_health
@@ -137,17 +136,9 @@ def _load(path: Path) -> list[dict[str, Any]]:
 
 
 def _write(path: Path, rows: list[dict[str, Any]]) -> None:
-    fd, temporary = tempfile.mkstemp(prefix=".capacity-", dir=path.parent)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump({"schema": "abyss_machine_capacity_samples_v1", "samples": rows}, handle)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-    finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
+    storage_health.atomic_json(
+        path, {"schema": "abyss_machine_capacity_samples_v1", "samples": rows}
+    )
 
 
 def observe(state_path: Path, *, paths: tuple[Path, ...], write: bool = True) -> dict[str, Any]:
@@ -158,6 +149,7 @@ def observe(state_path: Path, *, paths: tuple[Path, ...], write: bool = True) ->
         if write:
             state_path.parent.mkdir(parents=True, exist_ok=True)
             lock = open(state_path.with_suffix(".lock"), "a", encoding="utf-8")
+            storage_health.inherit_directory_owner(lock.fileno(), state_path.parent)
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         rows = _load(state_path)
         forecasts = [forecast(rows, row) for row in current]
