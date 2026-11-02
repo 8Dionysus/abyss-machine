@@ -9,6 +9,8 @@ without importing or mutating the stack repository.
 
 from __future__ import annotations
 
+from . import snapshot_history
+
 import argparse
 import array
 import concurrent.futures
@@ -1279,6 +1281,10 @@ def safe_atomic_write_json(path: Path, data: dict[str, Any], mode: int = 0o664) 
 def safe_append_jsonl(path: Path, data: dict[str, Any], mode: int = 0o664) -> dict[str, Any] | None:
     try:
         ensure_state_history_dir(path.parent)
+        if path.is_relative_to(NERVOUS_FACTS_ROOT):
+            with snapshot_history.maintenance_lock(NERVOUS_FACTS_ROOT, exclusive=False):
+                snapshot_history.append_snapshot(path, data, mode=mode)
+            return None
         payload = (json.dumps(data, sort_keys=False) + "\n").encode("utf-8")
         flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND
         if hasattr(os, "O_CLOEXEC"):
@@ -1307,7 +1313,7 @@ def safe_append_jsonl(path: Path, data: dict[str, Any], mode: int = 0o664) -> di
         except (KeyError, OSError):
             pass
         return None
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         return {"path": str(path), "error": str(exc)}
 
 
@@ -24376,6 +24382,13 @@ def nervous_collect_capture_facts(sources: dict[str, Any], trigger: str) -> tupl
 
 
 def nervous_snapshot(write_latest: bool = True, trigger: str | None = None) -> dict[str, Any]:
+    if not write_latest:
+        return _nervous_snapshot_unlocked(write_latest=False, trigger=trigger)
+    with snapshot_history.maintenance_lock(NERVOUS_FACTS_ROOT, exclusive=False):
+        return _nervous_snapshot_unlocked(write_latest=True, trigger=trigger)
+
+
+def _nervous_snapshot_unlocked(write_latest: bool = True, trigger: str | None = None) -> dict[str, Any]:
     trigger = trigger or os.environ.get("ABYSS_NERVOUS_CAPTURE_TRIGGER") or "manual"
     if trigger not in {"manual", "timer", "test", "typing_nervous_refresh", "typing_end_to_end"}:
         trigger = "manual"
@@ -26659,6 +26672,13 @@ def nervous_rebuild_fact_latest() -> dict[str, Any]:
 
 
 def nervous_forget(minutes: float, dry_run: bool = False, reason: str | None = None) -> dict[str, Any]:
+    if dry_run:
+        return _nervous_forget_unlocked(minutes, dry_run=True, reason=reason)
+    with snapshot_history.maintenance_lock(NERVOUS_FACTS_ROOT):
+        return _nervous_forget_unlocked(minutes, dry_run=False, reason=reason)
+
+
+def _nervous_forget_unlocked(minutes: float, dry_run: bool = False, reason: str | None = None) -> dict[str, Any]:
     minutes = max(0.1, min(float(minutes), 24 * 60.0))
     cutoff = dt.datetime.now(dt.timezone.utc).astimezone() - dt.timedelta(minutes=minutes)
     files: list[dict[str, Any]] = []

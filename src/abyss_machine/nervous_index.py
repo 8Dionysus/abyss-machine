@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from . import snapshot_history
+
 import datetime as dt
 import hashlib
 import json
@@ -131,13 +133,15 @@ def parse_jsonl_records(path: Path | str, text: str) -> tuple[list[dict[str, Any
     records: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
     path_text = str(path)
+    decoder = snapshot_history.Decoder()
     for line_no, line in enumerate(text.splitlines(), start=1):
         raw = line.strip()
         if not raw:
             continue
         try:
+            raw = decoder.decode(raw.encode("utf-8")).decode("utf-8").strip()
             data = json.loads(raw)
-        except json.JSONDecodeError as exc:
+        except (json.JSONDecodeError, snapshot_history.HistoryError) as exc:
             errors.append({"path": path_text, "line": line_no, "error": str(exc)})
             continue
         if isinstance(data, dict):
@@ -154,16 +158,27 @@ def parse_jsonl_records_with_metadata(
     source_sha256: str | None = None,
     line_offset: int = 0,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    if line_offset > 0 and snapshot_history.SCHEMA in text:
+        # Incremental callers provide a physical tail; decode from the nearest file
+        # history through the same parser so delta bases and original line IDs survive.
+        try:
+            complete = Path(path).read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            return [], [{"path": str(path), "error": str(exc)}]
+        all_records, all_errors = parse_jsonl_records_with_metadata(path, complete, source_sha256=source_sha256)
+        return [r for r in all_records if r["line"] > line_offset], all_errors
     records: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
     path_text = str(path)
+    decoder = snapshot_history.Decoder()
     for line_no, line in enumerate(text.splitlines(), start=1 + max(int(line_offset), 0)):
         raw = line.strip()
         if not raw:
             continue
         try:
+            raw = decoder.decode(raw.encode("utf-8")).decode("utf-8").strip()
             data = json.loads(raw)
-        except json.JSONDecodeError as exc:
+        except (json.JSONDecodeError, snapshot_history.HistoryError) as exc:
             errors.append({"path": path_text, "line": line_no, "error": str(exc)})
             continue
         if not isinstance(data, dict):

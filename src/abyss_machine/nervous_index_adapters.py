@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from . import snapshot_history
+
 from contextlib import contextmanager
 import fcntl
 import grp
@@ -902,6 +904,16 @@ def build_incremental_document_from_source_roots(
             and int(previous.get("source_line_count") or 0) == source_line_count
             and str(previous.get("projection_identity") or "") == projection_identity
         )
+        if (not content_unchanged and incremental and previous and read_error is None
+                and snapshot_history.SCHEMA.encode() in raw
+                and str(previous.get("projection_identity") or "") == projection_identity):
+            # Transport-only rewrite: prove every original source byte is still present.
+            logical = snapshot_history.decoded_identity(raw)
+            content_unchanged = (
+                logical["sha256"] == str(previous.get("source_sha256") or "")
+                and logical["size_bytes"] == int(previous.get("source_size_bytes") or 0)
+                and logical["line_count"] == int(previous.get("source_line_count") or 0)
+            )
         if content_unchanged:
             unchanged_paths.append(path_text)
             metadata_refreshed_paths.append(path_text)
@@ -967,6 +979,9 @@ def build_incremental_document_from_source_roots(
         path: {
             **previous_entries[path],
             "schema": nervous_index.INDEX_SOURCE_MANIFEST_SCHEMA,
+            "source_sha256": file_identities[path]["source_sha256"],
+            "source_size_bytes": file_identities[path]["source_size_bytes"],
+            "source_line_count": file_identities[path]["source_line_count"],
             "source_observation": file_identities[path]["source_observation"],
             "updated_at": generated_at,
         }
