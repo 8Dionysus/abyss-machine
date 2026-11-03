@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from . import snapshot_history
+
 import datetime as dt
 import grp
 import hashlib
@@ -523,15 +525,22 @@ def build_events_incremental(
         source_observations[path_text] = observation
         raw_by_path[path_text] = raw
         content_bytes_hashed += len(raw)
-        identities.append(
-            {
-                "path": path_text,
-                "sha256": hashlib.sha256(raw).hexdigest(),
-                "size_bytes": len(raw),
-                "line_count": len(raw.splitlines()),
-                "observation": observation,
-            }
-        )
+        current_identity = {
+            "path": path_text,
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "size_bytes": len(raw),
+            "line_count": len(raw.splitlines()),
+            "observation": observation,
+        }
+        identities.append(current_identity)
+        if observation_reuse_allowed and previous and snapshot_history.SCHEMA.encode() in raw:
+            logical = snapshot_history.decoded_identity(raw)
+            if (logical["sha256"] == str(previous.get("sha256") or "")
+                    and logical["size_bytes"] == int(previous.get("size_bytes") or 0)
+                    and logical["line_count"] == int(previous.get("line_count") or 0)):
+                # The derivation boundary state remains valid after a bit-exact recode.
+                previous_by_path[path_text] = dict(current_identity)
+                raw_by_path.pop(path_text, None)
     identity_by_path = {str(item["path"]): item for item in identities}
     if len(identities) != len(source_files):
         fallback_reasons.append("source_identity_incomplete")

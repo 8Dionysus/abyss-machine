@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 25470139,
+  "allowed_tracked_bytes": 30919990,
+  "approved_by": "repository-owner",
+  "base_ref": "18a3d795a85c70002e2d3723f1fce6186f083fe7",
+  "changed_generated_bytes": 25470139,
+  "changed_generated_files": 341,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "c57ad381cde31443fd80dbb0dd59318dfca45ad8f950c2a61009ef8b647307e3",
+  "reason": "Recover installed snapshot history with compatible Python readers and current owner evidence",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 30919990,
+  "tracked_bytes_max": 27262976
+}
