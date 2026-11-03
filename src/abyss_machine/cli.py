@@ -9,7 +9,7 @@ without importing or mutating the stack repository.
 
 from __future__ import annotations
 
-from . import snapshot_history
+from abyss_machine import snapshot_history
 
 import argparse
 import array
@@ -15650,6 +15650,19 @@ def resource_launch_storage_reservation_kind(resource_kind: str, target: str | N
     return "artifact"
 
 
+def storage_write_capacity_floor(requested_bytes: int) -> tuple[int, int, int]:
+    document = storage_policy_document().get("document") or {}
+    policy = document.get("write_preflight") if isinstance(document, dict) else {}
+    policy = policy if isinstance(policy, dict) else {}
+    def positive(name: str, default: int) -> int:
+        value = policy.get(name)
+        return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else default
+    threshold = positive("large_write_threshold_bytes", 1024**3)
+    small_floor = positive("small_write_min_free_after_bytes", 1024**3)
+    floor = small_floor if requested_bytes < threshold else max(5 * 1024**3, int(requested_bytes * 0.10))
+    return threshold, small_floor, floor
+
+
 def storage_write_preflight(
     kind: str,
     bytes_required: int,
@@ -15687,8 +15700,7 @@ def storage_write_preflight(
     recommended_available_after = recommended_reservations.get("available_after_reservations_bytes")
     if isinstance(recommended_available_after, int):
         recommended_decision_usage["available_to_user_bytes"] = recommended_available_after
-    large_write_threshold = 1024 * 1024 * 1024
-    min_free_after = max(5 * 1024 * 1024 * 1024, int(requested_bytes * 0.10))
+    large_write_threshold, small_write_floor, min_free_after = storage_write_capacity_floor(requested_bytes)
     capacity_admission = storage_capacity_admission(
         capacity_protection,
         target_reservations,
@@ -15895,6 +15907,7 @@ def storage_write_preflight(
             "accounts_for_active_reservations": True,
             "reservation_state_fail_closed": True,
             "large_write_threshold_bytes": large_write_threshold,
+            "small_write_min_free_after_bytes": small_write_floor,
             "min_free_after_bytes": min_free_after,
             "host_owned_large_root": str(ABYSS_MACHINE_ROOT),
             "protected_roots": storage_protected_roots(),
@@ -19737,6 +19750,7 @@ def resource_plan(
     write_preflight_data: dict[str, Any] | None = None,
     reservation_data: dict[str, Any] | None = None,
     force_fresh_live_inputs: bool = False,
+    overrides: list[str] | None = None,
 ) -> dict[str, Any]:
     normalized_class = resource_valid_class(workload_class)
     normalized_kind = resource_valid_kind(kind)
@@ -20000,6 +20014,7 @@ def resource_plan(
         latency=latency,
         unattended=unattended,
         force=force,
+        overrides=overrides,
         bytes_required=bytes_required,
         target=target,
         unit_type=unit_type,
@@ -20175,7 +20190,14 @@ def resource_launch(
     workspace_owner: str | None = None,
     workspace_lease_seconds: int = 300,
     workspace_grace_seconds: int = 60,
+    overrides: list[str] | None = None,
+    target_from_cwd: bool = False,
+    wait_for_admission: float = 0.0,
 ) -> dict[str, Any]:
+    if target_from_cwd:
+        if target is not None or not same_dir:
+            raise ValueError("target_from_cwd requires same-dir and conflicts with target")
+        target = os.getcwd()
     request_started_at = now_iso()
     request_started_monotonic = time.monotonic()
     clean_command = [str(item) for item in command if str(item)]
@@ -20215,9 +20237,12 @@ def resource_launch(
         if storage_reservation_pair_valid and clean_command
         else None
     )
-    storage_execution_identity = (
-        f"{storage_reservation_id}:execution" if storage_reservation_id else None
-    )
+    storage_execution_identity = None
+    if storage_reservation_id:
+        start_token = storage_reservations.launcher_start_token(os.getpid())
+        storage_execution_identity = f"{storage_reservation_id}:execution"
+        if start_token:
+            storage_execution_identity += f":{start_token}"
     storage_reservation_ttl = resource_launch_storage_reservation_ttl(timeout_sec)
     policy = resource_policy_document()
     startup_policy = policy.get("startup_admission") if isinstance(policy.get("startup_admission"), dict) else {}
@@ -20229,6 +20254,8 @@ def resource_launch(
         else max(0.0, float(startup_wait_sec))
     )
     wait_deadline = time.monotonic() + wait_timeout
+    admission_wait_deadline = time.monotonic() + max(0.0, float(wait_for_admission))
+    admission_waiting = False
     waited_sec = 0.0
     wait_attempts = 0
     lease: dict[str, Any] | None = None
@@ -20278,6 +20305,7 @@ def resource_launch(
         "unattended": unattended,
         "activity": activity,
         "force": force,
+        "overrides": overrides,
         "bytes_required": bytes_required,
         "target": target,
         "memory_demand_mib": memory_demand_mib,
@@ -20425,6 +20453,8 @@ def resource_launch(
         plan = resource_plan(**plan_kwargs, reservation_data=reservation_snapshot)
     else:
         while True:
+            if admission_waiting and time.monotonic() >= admission_wait_deadline:
+                break
             if launch_attestation_refresh_pending:
                 launch_attestation_refresh_pending = False
                 if not refresh_launch_attestations_with_budget():
@@ -20442,6 +20472,8 @@ def resource_launch(
                 launch_attestation_refresh_pending = True
                 continue
             should_wait = False
+            admission_retry = False
+            sleep_deadline = wait_deadline
             refresh_attestations = False
             wait_started = time.monotonic()
             lock_wait_started = time.monotonic()
@@ -20492,6 +20524,11 @@ def resource_launch(
                         attestation_age_at_admission_sec = attestation_age
                         blocked_now = list(plan.get("blocked_reasons") or [])
                         denied_now = list(plan.get("denied_reasons") or [])
+                        if admission_waiting and time.monotonic() >= admission_wait_deadline:
+                            plan["blocked_reasons"] = blocked_now or ["admission_wait_deadline_elapsed"]
+                            plan["ok"] = False
+                            plan["decision"] = "force_required"
+                            break
                         unknown_conflict = (
                             "startup_unknown_demand_in_progress"
                             in blocked_now
@@ -20509,10 +20546,11 @@ def resource_launch(
                             and not denied_now
                             and set(blocked_now).issubset(waitable_reasons)
                         )
-                        if (
-                            only_waitable
-                            and time.monotonic() < wait_deadline
-                        ):
+                        if blocked_now and not denied_now and time.monotonic() < admission_wait_deadline:
+                            should_wait = True
+                            admission_retry = True
+                            sleep_deadline = admission_wait_deadline
+                        elif only_waitable and wait_for_admission <= 0 and time.monotonic() < wait_deadline:
                             should_wait = True
                         elif not blocked_now and not denied_now:
                             requested = nested_get(
@@ -20597,10 +20635,9 @@ def resource_launch(
                                     }
                                 else:
                                     requested_storage_bytes = max(0, int(bytes_required or 0))
-                                    min_free_after = max(
-                                        5 * 1024 * 1024 * 1024,
-                                        int(requested_storage_bytes * 0.10),
-                                    )
+                                    _, _, min_free_after = storage_write_capacity_floor(requested_storage_bytes)
+                                    if "storage" in (overrides or []) or resource_planning.force_effective_for_request(force, effective_unattended):
+                                        min_free_after = 0
                                     try:
                                         route_metadata = None
                                         if protection.get("route_kind") == "secondary_benchmark":
@@ -20702,8 +20739,12 @@ def resource_launch(
             if not should_wait:
                 break
             wait_attempts += 1
-            time.sleep(min(0.25, max(0.0, wait_deadline - time.monotonic())))
+            time.sleep(min(0.25, max(0.0, sleep_deadline - time.monotonic())))
             waited_sec += max(0.0, time.monotonic() - wait_started)
+            if admission_retry:
+                admission_waiting = True
+                if launch_attestations_required and time.monotonic() < admission_wait_deadline:
+                    collect_launch_attestations()
 
     if not plan:
         plan = {
@@ -21031,6 +21072,7 @@ def resource_launch(
                 "estimate_source": estimate_source,
                 "estimate_confidence": estimate_confidence,
                 "startup_wait_sec": wait_timeout,
+                "wait_for_admission_sec": max(0.0, float(wait_for_admission)),
                 "sample_thermal": None if sample_thermal is None else bool(sample_thermal),
                 "managed_workspace": (
                     {
@@ -55056,6 +55098,7 @@ def main(argv: list[str]) -> int:
     resource_plan_parser.add_argument("--unattended", action="store_true", help="plan as unattended/background work")
     resource_plan_parser.add_argument("--activity", choices=["foreground", "background", "maintenance"], default=None, help="explicit owner-declared workload activity")
     resource_plan_parser.add_argument("--force", action="store_true", help="operator override for overrideable gates")
+    resource_plan_parser.add_argument("--override", action="append", choices=["storage", "memory", "cpu", "thermal", "game", "mode"], default=[], help="override a named gate; may be repeated")
     resource_plan_parser.add_argument("--scope", action="store_true", help="plan systemd scope instead of service")
     resource_plan_parser.add_argument("--bytes", dest="bytes_required", type=int, default=None, help="optional generated-write byte estimate")
     resource_plan_parser.add_argument("--target", default=None, help="optional generated-write target path for storage preflight")
@@ -55077,19 +55120,23 @@ def main(argv: list[str]) -> int:
     resource_launch_parser.add_argument("--unattended", action="store_true", help="launch as unattended/background work")
     resource_launch_parser.add_argument("--activity", choices=["foreground", "background", "maintenance"], default=None, help="explicit owner-declared workload activity")
     resource_launch_parser.add_argument("--force", action="store_true", help="operator override for overrideable gates")
+    resource_launch_parser.add_argument("--override", action="append", choices=["storage", "memory", "cpu", "thermal", "game", "mode"], default=[], help="override a named gate; may be repeated")
     resource_launch_parser.add_argument("--dry-run", action="store_true", help="plan and show systemd-run argv without executing")
     resource_launch_parser.add_argument("--scope", action="store_true", help="launch as systemd scope instead of transient service")
     resource_launch_parser.add_argument("--unit", default=None, help="optional transient unit name")
     resource_launch_parser.add_argument("--no-same-dir", action="store_true", help="do not pass --same-dir to systemd-run")
     resource_launch_parser.add_argument("--timeout", type=float, default=0.0, help="timeout for systemd-run call; 0 means no timeout")
     resource_launch_parser.add_argument("--bytes", dest="bytes_required", type=int, default=None, help="optional generated-write byte estimate")
-    resource_launch_parser.add_argument("--target", default=None, help="optional generated-write target path for storage preflight")
+    launch_target = resource_launch_parser.add_mutually_exclusive_group()
+    launch_target.add_argument("--target", default=None, help="optional generated-write target path for storage preflight")
+    launch_target.add_argument("--target-from-cwd", action="store_true", help="use the same-dir working directory for storage preflight")
     resource_launch_parser.add_argument("--memory-demand-mib", type=float, default=None, help="expected incremental startup memory demand in MiB")
     resource_launch_parser.add_argument("--demand-key", default=None, help="stable non-secret owner identity for startup demand")
     resource_launch_parser.add_argument("--demand-owner", default=None, help="owner reporting the startup demand estimate")
     resource_launch_parser.add_argument("--estimate-source", default=None, help="source of the startup demand estimate")
     resource_launch_parser.add_argument("--estimate-confidence", default=None, help="confidence label for the startup demand estimate")
     resource_launch_parser.add_argument("--startup-wait", type=float, default=None, help="seconds to wait for an unknown-demand startup lane")
+    resource_launch_parser.add_argument("--wait-for-admission", type=float, default=0.0, help="seconds to retry overrideable admission blocks")
     resource_launch_parser.add_argument("--no-thermal-sample", action="store_true", help="use latest thermal plan instead of taking a fresh sample")
     resource_launch_parser.add_argument("--success-on-block", action="store_true", help="return success when an overrideable gate blocks a scheduled launch")
     resource_launch_parser.add_argument("--workspace", default=None, help="managed workspace path; the launcher creates it when absent")
@@ -56501,11 +56548,14 @@ def main(argv: list[str]) -> int:
             if command == "status":
                 data = storage_lifecycle_adapters.status(STORAGE_LIFECYCLE_ROOT)
             elif command == "reap":
+                reservation_maintenance = storage_reservations.expire_reservations(STORAGE_RESERVATIONS_ROOT)
                 data = storage_lifecycle_adapters.reap(
                     STORAGE_LIFECYCLE_ROOT,
                     limit=max(1, int(args.limit)),
                     scan_limit=max(1, int(args.scan_limit)),
                 )
+                data["reservation_maintenance"] = reservation_maintenance
+                data["ok"] = bool(data.get("ok")) and bool(reservation_maintenance.get("ok"))
             elif command == "open":
                 data = storage_lifecycle_adapters.register_workspace(
                     STORAGE_LIFECYCLE_ROOT,
@@ -57899,6 +57949,7 @@ def main(argv: list[str]) -> int:
                 unattended=bool(args.unattended),
                 activity=args.activity,
                 force=bool(args.force),
+                overrides=args.override,
                 bytes_required=args.bytes_required,
                 target=args.target,
                 memory_demand_mib=args.memory_demand_mib,
@@ -57916,6 +57967,8 @@ def main(argv: list[str]) -> int:
                 print_resource_plan_text(data)
             return 0 if data.get("ok") else 2 if data.get("decision") == "force_required" else 1
         if args.resource_command == "launch":
+            if args.target_from_cwd and args.no_same_dir:
+                parser.error("--target-from-cwd requires --same-dir")
             data = resource_launch(
                 command=list(args.cmd),
                 workload_class=str(args.workload_class),
@@ -57924,10 +57977,12 @@ def main(argv: list[str]) -> int:
                 unattended=bool(args.unattended),
                 activity=args.activity,
                 force=bool(args.force),
+                overrides=args.override,
                 dry_run=bool(args.dry_run),
                 unit_type="scope" if bool(args.scope) else "service",
                 unit=args.unit,
                 same_dir=not bool(args.no_same_dir),
+                target_from_cwd=bool(args.target_from_cwd),
                 timeout_sec=float(args.timeout),
                 bytes_required=args.bytes_required,
                 target=args.target,
@@ -57937,6 +57992,7 @@ def main(argv: list[str]) -> int:
                 estimate_source=args.estimate_source,
                 estimate_confidence=args.estimate_confidence,
                 startup_wait_sec=args.startup_wait,
+                wait_for_admission=args.wait_for_admission,
                 sample_thermal=False if bool(args.no_thermal_sample) else None,
                 write_latest=True,
                 execution_delegate=(
