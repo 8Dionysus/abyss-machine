@@ -29,6 +29,7 @@ except Exception:  # pragma: no cover - optional production verifier dependency.
     Ed25519PublicKey = None  # type: ignore[assignment]
 
 from . import validation_contracts
+from . import artifact_subject_retention
 
 POLICY_REF = "manifests/artifact_signature_policy.manifest.json"
 POLICY_REF_REPO_QUALIFIED = f"repo:abyss-machine/{POLICY_REF}"
@@ -5588,6 +5589,7 @@ def _subject_store_materialization_admission(gate: dict[str, Any] | None) -> dic
     }
 
 
+@artifact_subject_retention.materialize_with_retention
 def materialize_artifact_subjects(
     bundle_dir: str | Path,
     *,
@@ -5724,8 +5726,12 @@ def materialize_artifact_subjects(
         }
 
     written: list[str] = []
+    reused: list[str] = []
     for source, target, _item in copy_plan:
         target.parent.mkdir(parents=True, exist_ok=True)
+        if target.is_file() and not target.is_symlink() and _file_digest(target) == _item.get("sha256"):
+            reused.append(str(target))
+            continue
         shutil.copyfile(source, target)
         written.append(str(target))
     meta = {
@@ -5776,6 +5782,7 @@ def materialize_artifact_subjects(
         "trust_gate": gate,
         "materialization_admission": materialization_admission,
         "written": written,
+        "reused": reused,
         "status": status,
         "registry_update": registry_update,
         "errors": materialization_errors,
@@ -9748,6 +9755,7 @@ def read_bundle_registry(
     }
 
 
+@artifact_subject_retention.serialized_registry_write
 def write_bundle_registry_record(
     bundle_dir: str | Path,
     registry_dir: str | Path,
