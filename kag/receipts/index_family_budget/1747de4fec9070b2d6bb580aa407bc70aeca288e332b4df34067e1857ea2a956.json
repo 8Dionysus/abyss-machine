@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 15280095,
+  "allowed_tracked_bytes": 30979992,
+  "approved_by": "repository-owner",
+  "base_ref": "b42e71093cf656d6378a991c28d05f7c7ab56555",
+  "changed_generated_bytes": 15280095,
+  "changed_generated_files": 165,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "1747de4fec9070b2d6bb580aa407bc70aeca288e332b4df34067e1857ea2a956",
+  "reason": "Recover installed artifact subject retention while retaining isolation and owner evidence",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 30979992,
+  "tracked_bytes_max": 27262976
+}
