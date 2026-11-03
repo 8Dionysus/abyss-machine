@@ -9,7 +9,7 @@ without importing or mutating the stack repository.
 
 from __future__ import annotations
 
-from . import snapshot_history
+from abyss_machine import snapshot_history
 
 import argparse
 import array
