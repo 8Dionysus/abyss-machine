@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 25582108,
+  "allowed_tracked_bytes": 31064485,
+  "approved_by": "repository-owner",
+  "base_ref": "0e474ae63c52aabaad4d1187f8e67cdec6dca60f",
+  "changed_generated_bytes": 25582108,
+  "changed_generated_files": 338,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "e624ee05fa5d17c147b87070d029341dd76425b53a106df9ddcc0e813ccc1ee3",
+  "reason": "Refresh owner evidence for the cooling fan_boost stage (quiet performance fan ladder)",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 31064485,
+  "tracked_bytes_max": 27262976
+}

@@ -674,6 +674,9 @@ COOLING_FAN_SERIES_LATEST_PATH = COOLING_FAN_SERIES_ROOT / "latest.json"
 COOLING_RAPL_SMOOTHING_ROOT = COOLING_ROOT / "rapl-smoothing"
 COOLING_RAPL_SMOOTHING_LATEST_PATH = COOLING_RAPL_SMOOTHING_ROOT / "latest.json"
 COOLING_RAPL_SMOOTHING_STATE_PATH = COOLING_RAPL_SMOOTHING_ROOT / "state.json"
+COOLING_FAN_BOOST_ROOT = COOLING_ROOT / "fan-boost"
+COOLING_FAN_BOOST_LATEST_PATH = COOLING_FAN_BOOST_ROOT / "latest.json"
+COOLING_FAN_BOOST_STATE_PATH = COOLING_FAN_BOOST_ROOT / "state.json"
 COOLING_SERVICE = "abyss-power-profile-auto.service"
 COOLING_TIMER = "abyss-power-profile-auto.timer"
 VALID_COOLING_PROFILES = cooling_contracts.VALID_COOLING_PROFILES
@@ -3806,6 +3809,61 @@ def cooling_rapl_smoothing_apply(updated_by: str = "auto") -> dict[str, Any]:
     return data
 
 
+def cooling_cpu_counters() -> tuple[int, int] | None:
+    """Aggregate /proc/stat CPU jiffies as (total, idle+iowait) for load-based fan boost release."""
+    try:
+        fields = Path("/proc/stat").read_text(encoding="utf-8").splitlines()[0].split()
+        values = [int(item) for item in fields[1:9]]
+    except (OSError, ValueError, IndexError):
+        return None
+    if fields[0] != "cpu" or len(values) < 5:
+        return None
+    return sum(values), values[3] + values[4]
+
+
+def cooling_fan_boost_decide(profile: str, updated_by: str = "auto") -> dict[str, Any]:
+    config = cooling_contracts.fan_boost_config(cooling_config())
+    raw_state, _ = load_json_document(COOLING_FAN_BOOST_STATE_PATH)
+    state = raw_state.get("state") if isinstance(raw_state, dict) and isinstance(raw_state.get("state"), dict) else {}
+    temperature = cooling_temperature_summary()
+    temp = temperature.get("temperature_c_max")
+    _, new_state, decision = cooling_contracts.fan_boost_decision(
+        config=config,
+        state=state,
+        now_epoch=time.time(),
+        profile=str(profile),
+        temperature_c=float(temp) if isinstance(temp, (int, float)) else None,
+        package_throttle_count=cooling_package_throttle_count(),
+        cpu_counters=cooling_cpu_counters(),
+    )
+    generated_at = now_iso()
+    data = {
+        "schema": f"{SCHEMA_PREFIX}_cooling_fan_boost_v1",
+        "version": VERSION,
+        "generated_at": generated_at,
+        "updated_by": updated_by,
+        "enabled": bool(config.get("enabled", False)),
+        **decision,
+    }
+    state_doc = {
+        "schema": f"{SCHEMA_PREFIX}_cooling_fan_boost_state_v1",
+        "version": VERSION,
+        "generated_at": generated_at,
+        "updated_by": updated_by,
+        "state": new_state,
+    }
+    writes = [
+        safe_atomic_write_json(COOLING_FAN_BOOST_STATE_PATH, state_doc, 0o664),
+        safe_atomic_write_json(COOLING_FAN_BOOST_LATEST_PATH, data, 0o664),
+    ]
+    if decision.get("action") not in {"disabled", "not_applicable"}:
+        writes.append(safe_append_jsonl(ai_daily_jsonl_path(COOLING_FAN_BOOST_ROOT), data, 0o664))
+    errors = [error for error in writes if error]
+    if errors:
+        data["write_errors"] = errors
+    return data
+
+
 def cooling_status(write_latest: bool = True) -> dict[str, Any]:
     temperature = cooling_temperature_summary()
     thermal_config = ai_config().get("thermal_policy", {})
@@ -3974,6 +4032,7 @@ def cooling_apply(profile: str = "auto", write_latest: bool = True, updated_by: 
         fan_status_port=cooling_lenovo_fan_status,
         platform_profile_port=cooling_platform_profile_status,
         paths_port=cooling_paths,
+        fan_boost_port=lambda normalized_profile: cooling_fan_boost_decide(normalized_profile, updated_by=updated_by),
     )
     if write_latest:
         latest_error = safe_atomic_write_json(COOLING_LATEST_PATH, cooling_status(write_latest=False), 0o664)
