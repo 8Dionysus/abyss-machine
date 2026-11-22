@@ -344,6 +344,57 @@ def test_cli_fan_boost_decide_persists_state_latest_and_daily_log(tmp_path: Path
     assert len(daily[0].read_text(encoding="utf-8").splitlines()) == 2
 
 
+def test_cli_fan_boost_decide_publishes_nothing_when_state_write_fails(tmp_path: Path, monkeypatch: Any) -> None:
+    """A caller that cannot persist state (non-root `mode set`) must not leave a phantom history row."""
+    from abyss_machine import cli
+
+    root = tmp_path / "fan-boost"
+    monkeypatch.setattr(cli, "COOLING_FAN_BOOST_ROOT", root)
+    monkeypatch.setattr(cli, "COOLING_FAN_BOOST_LATEST_PATH", root / "latest.json")
+    monkeypatch.setattr(cli, "COOLING_FAN_BOOST_STATE_PATH", root / "state.json")
+    config: dict[str, Any] = {"schema": "abyss_machine_cooling_config_v1", "fan_boost": {"enabled": True}}
+    monkeypatch.setattr(cli, "cooling_config", lambda: config)
+    monkeypatch.setattr(cli, "cooling_temperature_summary", lambda: {"temperature_c_max": 101.0})
+    clock = {"now": 1000.0, "throttle": 0, "cpu": (0, 0)}
+    monkeypatch.setattr(cli.time, "time", lambda: clock["now"])
+    monkeypatch.setattr(cli, "cooling_package_throttle_count", lambda: clock["throttle"])
+    monkeypatch.setattr(cli, "cooling_cpu_counters", lambda: clock["cpu"])
+    assert cli.cooling_fan_boost_decide("performance", updated_by="reconcile")["action"] == "sample_seed"
+
+    real_write = cli.safe_atomic_write_json
+    denied = {"path": str(root / "state.json"), "error": "[Errno 13] Permission denied"}
+
+    def state_dir_not_writable(path: Path, data: dict[str, Any], mode: int = 0o664) -> dict[str, Any] | None:
+        return dict(denied) if path == root / "state.json" else real_write(path, data, mode)
+
+    monkeypatch.setattr(cli, "safe_atomic_write_json", state_dir_not_writable)
+    clock.update(now=1120.0, throttle=1340 * 120, cpu=(192000, 28800))
+    phantom = cli.cooling_fan_boost_decide("performance", updated_by="set:performance")
+
+    assert phantom["action"] == "quiet_ready"
+    assert phantom["write_skipped"] == "state_write_failed"
+    assert phantom["write_errors"] == [denied]
+    assert json.loads((root / "latest.json").read_text(encoding="utf-8"))["action"] == "sample_seed"
+    state_doc = json.loads((root / "state.json").read_text(encoding="utf-8"))
+    assert state_doc["state"]["last_sample_epoch"] == 1000.0
+    daily = sorted(root.rglob("*.jsonl"))
+    assert [json.loads(line)["updated_by"] for line in daily[0].read_text(encoding="utf-8").splitlines()] == [
+        "reconcile"
+    ]
+
+    # The next persisted tick recomputes from the last state it actually stored.
+    monkeypatch.setattr(cli, "safe_atomic_write_json", real_write)
+    clock.update(now=1180.0, throttle=1340 * 180, cpu=(288000, 43200))
+    recomputed = cli.cooling_fan_boost_decide("performance", updated_by="reconcile")
+    assert recomputed["action"] == "quiet_ready"
+    assert "write_skipped" not in recomputed
+    assert json.loads((root / "state.json").read_text(encoding="utf-8"))["state"]["engage_count"] == 1
+    assert [json.loads(line)["action"] for line in daily[0].read_text(encoding="utf-8").splitlines()] == [
+        "sample_seed",
+        "quiet_ready",
+    ]
+
+
 def test_cli_cpu_counters_reads_aggregate_proc_stat_line() -> None:
     from abyss_machine import cli
 
