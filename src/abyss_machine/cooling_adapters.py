@@ -1170,10 +1170,20 @@ def apply_cooling_profile(
     paths_port: PathsPort,
     set_platform_profile_port: SetPlatformProfilePort = set_platform_profile,
     set_fan_mode_port: SetFanModePort = set_lenovo_fan_mode,
+    fan_boost_port: Callable[[str], Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     status_before = dict(status_port())
     normalized, target, recommendation = profile_targets_port(profile, status_before)
     fan = status_before.get("fan", {}) if isinstance(status_before.get("fan"), Mapping) else {}
+    fan_boost_action: dict[str, Any] | None = None
+    if fan_boost_port is not None and str(profile or "").strip().lower() == "auto":
+        # Quiet performance ladder: profile fan_mode (quiet) -> boost fan on sustained heat
+        # -> RAPL smoothing (only applicable at fan_mode 4) -> emergency profile.
+        boost = dict(fan_boost_port(normalized))
+        override = boost.get("fan_mode_override")
+        if isinstance(override, int):
+            target = {**target, "fan_mode": override}
+        fan_boost_action = {"action": "fan_boost", "ok": True, "decision": boost}
     platform_profile_data = nested_get(status_before, ["power", "platform_profile"])
     if not isinstance(platform_profile_data, Mapping):
         platform_profile_data = {}
@@ -1186,6 +1196,9 @@ def apply_cooling_profile(
         if action.get("error") == "root permission required":
             permission_required = True
         actions.append(action)
+
+    if fan_boost_action is not None:
+        actions.append(fan_boost_action)
 
     target_fan = target.get("fan_mode")
     if target_fan is not None:

@@ -96,6 +96,20 @@ def default_config(schema_prefix: str, version: str) -> dict[str, Any]:
             "max_sample_seconds": 180.0,
             "restore_when_not_applicable": True,
         },
+        "fan_boost": {
+            "enabled": False,
+            "apply_profiles": ["performance"],
+            "boost_fan_mode": 4,
+            "engage_temperature_c": 100.0,
+            "engage_package_throttle_per_s": 800.0,
+            "engage_sample_count": 2,
+            "release_temperature_c": 95.0,
+            "release_cpu_busy_fraction": 0.30,
+            "release_sample_count": 2,
+            "min_boost_seconds": 300.0,
+            "min_sample_seconds": 5.0,
+            "max_sample_seconds": 300.0,
+        },
         "notes": [
             "fan_mode 4 is documented by the ideapad-laptop ABI as Efficient Thermal Dissipation Mode.",
             "fan_mode 1 is documented standard mode and is the balanced writable target.",
@@ -129,6 +143,142 @@ def rapl_smoothing_config(config: dict[str, Any]) -> dict[str, Any]:
     overrides = raw if isinstance(raw, dict) else {}
     defaults = default_config(str(config.get("schema", "abyss_machine")).removesuffix("_cooling_config_v1"), str(config.get("version", ""))).get("rapl_smoothing", {})
     return deep_merge(defaults if isinstance(defaults, dict) else {}, overrides)
+
+
+def fan_boost_config(config: dict[str, Any]) -> dict[str, Any]:
+    raw = config.get("fan_boost", {})
+    overrides = raw if isinstance(raw, dict) else {}
+    defaults = default_config(str(config.get("schema", "abyss_machine")).removesuffix("_cooling_config_v1"), str(config.get("version", ""))).get("fan_boost", {})
+    return deep_merge(defaults if isinstance(defaults, dict) else {}, overrides)
+
+
+def fan_boost_decision(
+    *,
+    config: dict[str, Any],
+    state: dict[str, Any],
+    now_epoch: float,
+    profile: str,
+    temperature_c: float | None,
+    package_throttle_count: int | None,
+    cpu_counters: tuple[int, int] | None,
+) -> tuple[int | None, dict[str, Any], dict[str, Any]]:
+    """Quiet-by-default fan for performance: boost on sustained heat, release when load ends.
+
+    Engage uses heat evidence (temperature AND package-throttle rate). Release uses CPU load
+    instead of throttle rate, because boosting the fan itself lowers the throttle rate and
+    would otherwise release the boost while the load is still running (fan flapping).
+    Returns (fan_mode_override or None, new_state, decision). None means "use the profile fan_mode".
+    """
+    apply_profiles = config.get("apply_profiles") if isinstance(config.get("apply_profiles"), list) else ["performance"]
+    boost_fan = int_config(config, "boost_fan_mode", 4)
+    engage_temp = float_config(config, "engage_temperature_c", 100.0)
+    engage_rate = float_config(config, "engage_package_throttle_per_s", 800.0)
+    engage_samples = max(1, int_config(config, "engage_sample_count", 2))
+    release_temp = float_config(config, "release_temperature_c", 95.0)
+    release_busy = float_config(config, "release_cpu_busy_fraction", 0.30)
+    release_samples = max(1, int_config(config, "release_sample_count", 2))
+    min_boost = max(0.0, float_config(config, "min_boost_seconds", 300.0))
+    min_sample = max(1.0, float_config(config, "min_sample_seconds", 5.0))
+    max_sample = max(min_sample, float_config(config, "max_sample_seconds", 300.0))
+
+    new_state = dict(state)
+    active = bool(state.get("active", False))
+    rate: float | None = None
+    busy: float | None = None
+    elapsed: float | None = None
+    prev_epoch = state.get("last_sample_epoch")
+    if isinstance(prev_epoch, (int, float)):
+        elapsed = max(0.0, now_epoch - float(prev_epoch))
+    window_open = elapsed is not None and elapsed < min_sample
+    if not window_open:
+        # Too-close samples (manual applies between timer ticks) keep the older window open.
+        if elapsed is not None and elapsed <= max_sample:
+            prev_count = state.get("last_package_throttle_count")
+            if isinstance(prev_count, int) and isinstance(package_throttle_count, int):
+                rate = max(0, package_throttle_count - prev_count) / elapsed if elapsed > 0 else None
+            prev_cpu = state.get("last_cpu_counters")
+            if isinstance(prev_cpu, list) and len(prev_cpu) == 2 and cpu_counters is not None:
+                total_delta = cpu_counters[0] - int(prev_cpu[0])
+                idle_delta = cpu_counters[1] - int(prev_cpu[1])
+                if total_delta > 0:
+                    busy = max(0.0, min(1.0, 1.0 - idle_delta / total_delta))
+        new_state["last_sample_epoch"] = now_epoch
+        new_state["last_package_throttle_count"] = package_throttle_count
+        new_state["last_cpu_counters"] = list(cpu_counters) if cpu_counters is not None else None
+
+    sample = {
+        "temperature_c": temperature_c,
+        "package_throttle_per_s": round(rate, 1) if rate is not None else None,
+        "cpu_busy_fraction": round(busy, 3) if busy is not None else None,
+        "elapsed_seconds": round(elapsed, 1) if elapsed is not None else None,
+    }
+    enabled = bool(config.get("enabled", False))
+    if enabled and profile == "emergency":
+        # Emergency already forces the max fan; hand off to boost so the fan stays up after
+        # emergency recovery until the load actually ends (instead of dropping to quiet at once).
+        if not active:
+            new_state["boost_since_epoch"] = now_epoch
+        new_state.update({"active": True, "engage_count": 0, "release_count": 0})
+        return None, new_state, {"action": "emergency_handoff", "active": True, "profile": profile, "sample": sample}
+    applicable = enabled and profile in {str(item) for item in apply_profiles}
+    if not applicable:
+        new_state.update({"active": False, "engage_count": 0, "release_count": 0, "boost_since_epoch": None})
+        action = "released_not_applicable" if active else ("disabled" if not config.get("enabled", False) else "not_applicable")
+        return None, new_state, {"action": action, "active": False, "profile": profile, "sample": sample}
+    if window_open:
+        # Repeat the current decision without touching engage/release counters.
+        return (boost_fan if active else None), new_state, {
+            "action": "window_open_hold" if active else "window_open_quiet",
+            "active": active,
+            "profile": profile,
+            "fan_mode_override": boost_fan if active else None,
+            "sample": sample,
+        }
+
+    temp_known = isinstance(temperature_c, (int, float))
+    if not active:
+        hot = temp_known and rate is not None and temperature_c >= engage_temp and rate >= engage_rate
+        new_state["engage_count"] = int(state.get("engage_count") or 0) + 1 if hot else 0
+        new_state["release_count"] = 0
+        if new_state["engage_count"] >= engage_samples:
+            active = True
+            new_state["engage_count"] = 0
+            new_state["boost_since_epoch"] = now_epoch
+            action = "engage_boost"
+        else:
+            action = "quiet_ready" if hot else ("sample_seed" if rate is None else "quiet")
+    else:
+        settled = temp_known and busy is not None and temperature_c <= release_temp and busy <= release_busy
+        new_state["release_count"] = int(state.get("release_count") or 0) + 1 if settled else 0
+        new_state["engage_count"] = 0
+        held = now_epoch - float(state.get("boost_since_epoch") or now_epoch)
+        if new_state["release_count"] >= release_samples and held >= min_boost:
+            active = False
+            new_state["release_count"] = 0
+            new_state["boost_since_epoch"] = None
+            action = "release_boost"
+        else:
+            action = "hold_boost"
+    new_state["active"] = active
+    decision = {
+        "action": action,
+        "active": active,
+        "profile": profile,
+        "fan_mode_override": boost_fan if active else None,
+        "sample": sample,
+        "engage_count": new_state.get("engage_count"),
+        "release_count": new_state.get("release_count"),
+        "thresholds": {
+            "engage_temperature_c": engage_temp,
+            "engage_package_throttle_per_s": engage_rate,
+            "engage_sample_count": engage_samples,
+            "release_temperature_c": release_temp,
+            "release_cpu_busy_fraction": release_busy,
+            "release_sample_count": release_samples,
+            "min_boost_seconds": min_boost,
+        },
+    }
+    return (boost_fan if active else None), new_state, decision
 
 
 def paths_document(
