@@ -132,14 +132,14 @@ def test_cli_dictation_status_binds_status_adapter(monkeypatch, tmp_path: Path) 
         captured.update(kwargs)
         return {"schema": "status"}
 
-    monkeypatch.setattr(cli, "dictation_status_paths", lambda: paths)
-    monkeypatch.setattr(cli, "dictation_config", lambda: config)
-    monkeypatch.setattr(cli, "dictation_profiles", lambda: profiles)
-    monkeypatch.setattr(cli, "load_dictation_recording", lambda: recording)
-    monkeypatch.setattr(cli, "load_stale_dictation_recording", lambda: {"pid": 999})
-    monkeypatch.setattr(cli, "dictation_replacements_document", lambda: replacements)
-    monkeypatch.setattr(cli, "requested_dictation_profile_name", lambda name: "quality")
-    monkeypatch.setattr(cli, "dictation_journal_enabled", lambda: True)
+    monkeypatch.setattr(cli.dictation_cli, "dictation_status_paths", lambda: paths)
+    monkeypatch.setattr(cli.dictation_cli, "dictation_config", lambda: config)
+    monkeypatch.setattr(cli.dictation_cli, "dictation_profiles", lambda: profiles)
+    monkeypatch.setattr(cli.dictation_cli, "load_dictation_recording", lambda: recording)
+    monkeypatch.setattr(cli.dictation_cli, "load_stale_dictation_recording", lambda: {"pid": 999})
+    monkeypatch.setattr(cli.dictation_cli, "dictation_replacements_document", lambda: replacements)
+    monkeypatch.setattr(cli.dictation_cli, "requested_dictation_profile_name", lambda name: "quality")
+    monkeypatch.setattr(cli.dictation_cli, "dictation_journal_enabled", lambda: True)
     monkeypatch.setattr(dictation_status_adapters, "status_document", fake_status_document)
 
     assert cli.dictation_status() == {"schema": "status"}
@@ -167,14 +167,14 @@ def test_cli_dictation_status_reads_stale_only_when_not_recording(monkeypatch, t
         captured.update(kwargs)
         return {"schema": "status"}
 
-    monkeypatch.setattr(cli, "dictation_status_paths", lambda: paths)
-    monkeypatch.setattr(cli, "dictation_config", lambda: {})
-    monkeypatch.setattr(cli, "dictation_profiles", lambda: {})
-    monkeypatch.setattr(cli, "load_dictation_recording", lambda: None)
-    monkeypatch.setattr(cli, "load_stale_dictation_recording", lambda: {"pid": 999})
-    monkeypatch.setattr(cli, "dictation_replacements_document", lambda: {"items": []})
-    monkeypatch.setattr(cli, "requested_dictation_profile_name", lambda name: "auto")
-    monkeypatch.setattr(cli, "dictation_journal_enabled", lambda: False)
+    monkeypatch.setattr(cli.dictation_cli, "dictation_status_paths", lambda: paths)
+    monkeypatch.setattr(cli.dictation_cli, "dictation_config", lambda: {})
+    monkeypatch.setattr(cli.dictation_cli, "dictation_profiles", lambda: {})
+    monkeypatch.setattr(cli.dictation_cli, "load_dictation_recording", lambda: None)
+    monkeypatch.setattr(cli.dictation_cli, "load_stale_dictation_recording", lambda: {"pid": 999})
+    monkeypatch.setattr(cli.dictation_cli, "dictation_replacements_document", lambda: {"items": []})
+    monkeypatch.setattr(cli.dictation_cli, "requested_dictation_profile_name", lambda name: "auto")
+    monkeypatch.setattr(cli.dictation_cli, "dictation_journal_enabled", lambda: False)
     monkeypatch.setattr(dictation_status_adapters, "status_document", fake_status_document)
 
     assert cli.dictation_status() == {"schema": "status"}

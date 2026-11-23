@@ -28,7 +28,7 @@ except Exception:  # pragma: no cover - optional production verifier dependency.
     Ed25519PrivateKey = None  # type: ignore[assignment]
     Ed25519PublicKey = None  # type: ignore[assignment]
 
-from . import validation_contracts
+from abyss_machine import validation_contracts
 from . import artifact_subject_retention
 
 POLICY_REF = "manifests/artifact_signature_policy.manifest.json"
@@ -1817,14 +1817,6 @@ def _source_ref_status(row: dict[str, Any], changed_source_ref: str) -> dict[str
         "proves_current_ref": proves_current_ref,
         "known_refs": known_refs,
     }
-
-
-def _artifact_source_ref_state(source_status: dict[str, Any]) -> str:
-    if source_status.get("required") is not True:
-        return "not_requested"
-    if source_status.get("matched") is True:
-        return "proved_current"
-    return "missing_current_proof"
 
 
 def verify_update_metadata(

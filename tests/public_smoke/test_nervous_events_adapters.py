@@ -1020,7 +1020,7 @@ def test_cli_events_build_binds_file_work_to_adapter(monkeypatch, tmp_path: Path
     monkeypatch.setattr(cli, "NERVOUS_EVENTS_LATEST_PATH", latest_path)
     monkeypatch.setattr(cli, "nervous_effective_privacy", lambda write_latest=False: privacy_doc)
     monkeypatch.setattr(cli, "nervous_effective_sources", lambda write_latest=False: sources_doc)
-    monkeypatch.setattr(cli, "nervous_thermal_event_thresholds", lambda: thresholds)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_thermal_event_thresholds", lambda: thresholds)
     monkeypatch.setattr(cli.nervous_events_adapters, "run_events_build", fake_run_events_build)
 
     data = cli.nervous_events_build(write_latest=False)

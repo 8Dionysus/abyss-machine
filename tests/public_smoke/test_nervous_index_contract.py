@@ -694,8 +694,8 @@ def test_nervous_index_vacuum_result_envelopes_are_module_owned() -> None:
 
 def test_nervous_index_build_disabled_cli_branch_delegates_to_module_contract(monkeypatch) -> None:
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T12:00:00+00:00")
-    monkeypatch.setattr(cli, "nervous_change_id", lambda prefix: f"{prefix}-run-1")
-    monkeypatch.setattr(cli, "nervous_index_config", lambda: {"enabled": False})
+    monkeypatch.setattr(cli.nervous_cli, "nervous_change_id", lambda prefix: f"{prefix}-run-1")
+    monkeypatch.setattr(cli.nervous_cli, "nervous_index_config", lambda: {"enabled": False})
     monkeypatch.setattr(cli, "nervous_effective_privacy", lambda write_latest=False: {"global_pause": False})
     monkeypatch.setattr(cli, "nervous_effective_sources", lambda write_latest=False: {})
 
@@ -715,11 +715,11 @@ def test_nervous_index_build_global_pause_cli_branch_preserves_no_latest_write(m
         raise AssertionError("global_pause refusal must not write latest")
 
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T12:00:00+00:00")
-    monkeypatch.setattr(cli, "nervous_change_id", lambda prefix: f"{prefix}-run-1")
-    monkeypatch.setattr(cli, "nervous_index_config", lambda: {"enabled": True, "privacy": {"enforce_global_pause": True}})
+    monkeypatch.setattr(cli.nervous_cli, "nervous_change_id", lambda prefix: f"{prefix}-run-1")
+    monkeypatch.setattr(cli.nervous_cli, "nervous_index_config", lambda: {"enabled": True, "privacy": {"enforce_global_pause": True}})
     monkeypatch.setattr(cli, "nervous_effective_privacy", lambda write_latest=False: {"global_pause": True, "private_mode": True})
     monkeypatch.setattr(cli, "nervous_effective_sources", lambda write_latest=False: {})
-    monkeypatch.setattr(cli, "nervous_index_write_latest", fail_write_latest)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_index_write_latest", fail_write_latest)
 
     result = cli.nervous_index_build(write_latest=True)
 
@@ -754,13 +754,13 @@ def test_nervous_index_status_cli_delegates_stable_shape_to_module_contract(monk
     monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_ROOT", root_path)
     monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_SCHEMA_PATH", schema_path)
     monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_LATEST_PATH", latest_path)
-    monkeypatch.setattr(cli, "nervous_index_config", lambda: config)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_index_config", lambda: config)
     monkeypatch.setattr(cli, "nervous_effective_privacy", lambda write_latest=False: privacy)
     monkeypatch.setattr(cli, "nervous_effective_sources", lambda write_latest=False: sources)
-    monkeypatch.setattr(cli, "nervous_sqlite_fts5_ok", lambda: (True, None))
+    monkeypatch.setattr(cli.nervous_cli, "nervous_sqlite_fts5_ok", lambda: (True, None))
     monkeypatch.setattr(cli, "load_json_document", lambda path: (latest, None))
-    monkeypatch.setattr(cli, "nervous_index_db_counts", lambda: counts_doc)
-    monkeypatch.setattr(cli, "nervous_index_freshness", lambda meta=None, config=None: {"stale": False, "lag_sec": 0})
+    monkeypatch.setattr(cli.nervous_cli, "nervous_index_db_counts", lambda: counts_doc)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_index_freshness", lambda meta=None, config=None: {"stale": False, "lag_sec": 0})
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T13:01:00+00:00")
 
     def fake_unit(name: str) -> dict:
@@ -811,7 +811,7 @@ def test_nervous_index_search_cli_delegates_request_shape_to_index_adapter(monke
         return {"ok": True, "captured": kwargs}
 
     monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_DB_PATH", db_path)
-    monkeypatch.setattr(cli, "nervous_index_config", lambda: config)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_index_config", lambda: config)
     monkeypatch.setattr(cli, "nervous_effective_privacy", lambda write_latest=False: {"global_pause": False})
     monkeypatch.setattr(cli.nervous_index_adapters, "search_from_ports", fake_search_from_ports)
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T13:25:00+00:00")
@@ -843,7 +843,7 @@ def test_nervous_index_search_cli_delegates_request_shape_to_index_adapter(monke
 
 def test_nervous_index_search_cli_uses_adapter_refusal_when_global_pause(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_DB_PATH", tmp_path / "missing.db")
-    monkeypatch.setattr(cli, "nervous_index_config", lambda: {"search": {"default_limit": 7}})
+    monkeypatch.setattr(cli.nervous_cli, "nervous_index_config", lambda: {"search": {"default_limit": 7}})
     monkeypatch.setattr(cli, "nervous_effective_privacy", lambda write_latest=False: {"global_pause": True})
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T13:25:00+00:00")
 
@@ -858,7 +858,7 @@ def test_nervous_index_vacuum_cli_uses_module_refusal_when_paused(monkeypatch) -
     monkeypatch.setattr(cli, "nervous_effective_privacy", lambda write_latest=False: {"global_pause": True})
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T13:30:00+00:00")
     monkeypatch.setattr(
-        cli,
+        cli.nervous_cli,
         "nervous_index_db_counts",
         lambda: (_ for _ in ()).throw(AssertionError("pause should refuse before db counts")),
     )
@@ -875,7 +875,7 @@ def test_nervous_index_vacuum_cli_uses_module_missing_db_result(monkeypatch, tmp
 
     monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_DB_PATH", db_path)
     monkeypatch.setattr(cli, "nervous_effective_privacy", lambda write_latest=False: {"global_pause": False})
-    monkeypatch.setattr(cli, "nervous_index_db_counts", lambda: {"documents": 0, "chunks": 0})
+    monkeypatch.setattr(cli.nervous_cli, "nervous_index_db_counts", lambda: {"documents": 0, "chunks": 0})
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T13:31:00+00:00")
 
     started = vacuum_start_document(
@@ -902,7 +902,7 @@ def test_nervous_index_vacuum_cli_delegates_sqlite_execution_to_adapter(monkeypa
     monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_DB_PATH", db_path)
     monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_ROOT", tmp_path / "index-root")
     monkeypatch.setattr(cli, "nervous_effective_privacy", lambda write_latest=False: {"global_pause": False})
-    monkeypatch.setattr(cli, "nervous_index_db_counts", lambda: {"documents": 3, "chunks": 5})
+    monkeypatch.setattr(cli.nervous_cli, "nervous_index_db_counts", lambda: {"documents": 3, "chunks": 5})
     monkeypatch.setattr(cli.nervous_index_adapters, "vacuum_index", fake_vacuum)
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T13:32:00+00:00")
 
@@ -956,15 +956,15 @@ def test_nervous_index_validate_cli_delegates_stable_shape_to_module_contract(mo
     monkeypatch.setattr(cli, "ABYSS_MACHINE_STORAGE_ROOT", storage_root)
     monkeypatch.setattr(cli, "NERVOUS_INDEX_CONFIG_PATH", config_path)
     monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_DB_PATH", db_path)
-    monkeypatch.setattr(cli, "nervous_index_config", lambda: config)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_index_config", lambda: config)
     monkeypatch.setattr(cli, "nervous_effective_sources", lambda write_latest=False: sources)
-    monkeypatch.setattr(cli, "nervous_sqlite_fts5_ok", lambda: (True, None))
+    monkeypatch.setattr(cli.nervous_cli, "nervous_sqlite_fts5_ok", lambda: (True, None))
     monkeypatch.setattr(cli, "nervous_path_has_symlink_tail", lambda path, stop_at=None: False)
-    monkeypatch.setattr(cli, "nervous_index_db_counts", lambda: counts_doc)
-    monkeypatch.setattr(cli, "nervous_index_freshness", lambda meta=None, config=None: freshness)
-    monkeypatch.setattr(cli, "nervous_index_scan", lambda path, smoke_match_query: scan)
-    monkeypatch.setattr(cli, "nervous_event_jsonl_files", lambda: [event_path])
-    monkeypatch.setattr(cli, "nervous_episode_jsonl_files", lambda: [episode_path])
+    monkeypatch.setattr(cli.nervous_cli, "nervous_index_db_counts", lambda: counts_doc)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_index_freshness", lambda meta=None, config=None: freshness)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_index_scan", lambda path, smoke_match_query: scan)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_event_jsonl_files", lambda: [event_path])
+    monkeypatch.setattr(cli.nervous_cli, "nervous_episode_jsonl_files", lambda: [episode_path])
     monkeypatch.setattr(cli, "count_file_lines", lambda path: line_counts[path])
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T13:20:00+00:00")
 

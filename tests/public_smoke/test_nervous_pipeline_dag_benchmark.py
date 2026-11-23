@@ -67,7 +67,7 @@ def test_real_session_pipeline_benchmark_proves_delta_oracle_parity_without_sour
         },
     )
     monkeypatch.setattr(
-        benchmark.cli,
+        benchmark.cli.nervous_cli,
         "nervous_thermal_event_thresholds",
         benchmark.cli.nervous_events_contracts.thermal_event_thresholds,
     )

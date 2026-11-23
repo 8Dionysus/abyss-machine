@@ -459,6 +459,15 @@ def _tree_content_digest(root: Path) -> str:
     return digest.hexdigest()
 
 
+def _package_python_modules(package_root: Path) -> list[Path]:
+    """Python sources of the package, organ subpackages included."""
+    return sorted(
+        path
+        for path in package_root.rglob("*.py")
+        if "__pycache__" not in path.relative_to(package_root).parts
+    )
+
+
 def _prepare_code_generation(
     generations_root: Path,
     *,
@@ -467,7 +476,7 @@ def _prepare_code_generation(
     generation_id = _tree_content_digest(SOURCE_PACKAGE_ROOT)
     generation_root = generations_root / generation_id
     package_root = generation_root / "abyss_machine"
-    modules = sorted(SOURCE_PACKAGE_ROOT.glob("*.py"))
+    modules = _package_python_modules(SOURCE_PACKAGE_ROOT)
     if generation_root.exists():
         if (
             generation_root.is_symlink()
@@ -491,7 +500,7 @@ def _prepare_code_generation(
             ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
         )
         compiled_module_count = 0
-        for module_path in sorted((stage / "abyss_machine").glob("*.py")):
+        for module_path in _package_python_modules(stage / "abyss_machine"):
             compiled_path = Path(importlib.util.cache_from_source(str(module_path)))
             compiled_path.parent.mkdir(parents=True, exist_ok=True)
             py_compile.compile(str(module_path), cfile=str(compiled_path), doraise=True)
@@ -644,7 +653,7 @@ def install_code_projection(
                 os.close(lock_fd)
             for stage, _ in staged:
                 _remove_projection_path(stage)
-    modules = sorted(path.name for path in SOURCE_PACKAGE_ROOT.glob("*.py"))
+    modules = [path.relative_to(SOURCE_PACKAGE_ROOT).as_posix() for path in _package_python_modules(SOURCE_PACKAGE_ROOT)]
     actions.append({
         "action": "install_cli",
         "source": str(source),

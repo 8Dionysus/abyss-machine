@@ -99,7 +99,7 @@ def test_resource_thermal_admission_uses_fresh_gate_inputs_without_diagnostics(
         lambda **_kwargs: thermal_map,
     )
     monkeypatch.setattr(
-        abyss_machine_module,
+        abyss_machine_module.ai_cli,
         "ai_policy",
         lambda **_kwargs: {
             "ok": True,
@@ -325,7 +325,7 @@ def test_storage_monitor_no_write_is_transitive(
         fake_collector("status", {"ok": True, "summary": {}}),
     )
     monkeypatch.setattr(
-        abyss_machine_module,
+        abyss_machine_module.artifacts_cli,
         "artifacts_snapshot",
         fake_collector("artifacts", {"ok": True, "summary": {}}),
     )

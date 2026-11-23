@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from . import ai_cpu_routing
+from abyss_machine import ai_cpu_routing
 
 
 WORKLOAD_CLASS_LEVELS = {

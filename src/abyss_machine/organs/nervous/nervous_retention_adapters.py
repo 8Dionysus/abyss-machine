@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from . import nervous_retention
-from . import typing_nervous_adapters
+from abyss_machine import typing_nervous_adapters
 
 
 SymlinkTailPort = Callable[[Path, Path | None], bool]

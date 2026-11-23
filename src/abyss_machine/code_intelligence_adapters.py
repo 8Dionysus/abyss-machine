@@ -712,7 +712,7 @@ def collect_owner_admission_receipt(
     admission = config.get("admission") if isinstance(config.get("admission"), Mapping) else {}
     route = admission.get("owner_admission_boundary") if isinstance(admission.get("owner_admission_boundary"), Mapping) else {}
     try:
-        from .artifact_bundles import trust_gate
+        from abyss_machine.organs.artifacts.artifact_bundles import trust_gate
 
         gate = trust_gate(
             registry_dir,

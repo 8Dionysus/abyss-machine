@@ -20,8 +20,11 @@ ABYSS_MACHINE_BIN = Path(os.environ.get("ABYSS_MACHINE_BIN", str(SOURCE_CLI if S
 
 @pytest.fixture(scope="session")
 def abyss_machine_module() -> Any:
-    if ABYSS_MACHINE_BIN == SOURCE_CLI and str(SRC_ROOT) not in sys.path:
-        sys.path.insert(0, str(SRC_ROOT))
+    if ABYSS_MACHINE_BIN == SOURCE_CLI:
+        if str(SRC_ROOT) not in sys.path:
+            sys.path.insert(0, str(SRC_ROOT))
+        # organ CLIs bind `abyss_machine.cli`; patch and call that same module
+        return importlib.import_module("abyss_machine.cli")
     loader = importlib.machinery.SourceFileLoader("abyss_machine_under_test", str(ABYSS_MACHINE_BIN))
     spec = importlib.util.spec_from_loader(loader.name, loader)
     if spec is None:

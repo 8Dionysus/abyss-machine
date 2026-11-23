@@ -880,7 +880,9 @@ def test_bootstrap_install_projects_cli_modules_and_public_seed(tmp_path: Path) 
     assert 'module = "abyss_machine.cli"' in launcher
     assert 'module = "abyss_machine.resource_codex_hook"' in launcher
     assert 'runpy.run_module(module, run_name="__main__")' in launcher
-    assert (libexec_dir / "abyss_machine" / "artifact_bundles.py").is_file()
+    assert (libexec_dir / "abyss_machine" / "organs" / "artifacts" / "artifact_bundles.py").is_file()
+    for organ in ("nervous", "dictation", "ai", "artifacts", "knowledge"):
+        assert (libexec_dir / "abyss_machine" / "organs" / organ / "cli.py").is_file(), organ
     assert Path(actions["install_cli"]["compiled_cli"]).is_file()
     assert actions["install_cli"]["atomic_visibility"] is True
     assert actions["install_public_seed"]["atomic_visibility"] is True
@@ -1136,7 +1138,7 @@ def test_bootstrap_install_projects_cli_modules_and_public_seed(tmp_path: Path) 
             "--artifact-class",
             "public_source_seed",
             "--changed-path",
-            "src/abyss_machine/artifact_bundles.py",
+            "src/abyss_machine/organs/artifacts/artifact_bundles.py",
             "--json",
         ],
         cwd=tmp_path,
@@ -1166,7 +1168,7 @@ def test_bootstrap_install_projects_cli_modules_and_public_seed(tmp_path: Path) 
             "--artifact-class",
             "public_source_seed",
             "--changed-path",
-            "src/abyss_machine/artifact_bundles.py",
+            "src/abyss_machine/organs/artifacts/artifact_bundles.py",
             "--fail-on-blocking",
             "--json",
         ],
@@ -1389,7 +1391,7 @@ def test_bootstrap_refresh_code_projects_only_cli_modules_and_public_seed(tmp_pa
     assert "render" not in action_names
     assert "mkdir" not in action_names
     assert (libexec_dir / "abyss-machine").is_file()
-    assert (libexec_dir / "abyss_machine" / "artifact_bundles.py").is_file()
+    assert (libexec_dir / "abyss_machine" / "organs" / "artifacts" / "artifact_bundles.py").is_file()
     assert (bin_dir / "abyss-machine").is_symlink()
     assert actions["install_cli"]["atomic_visibility"] is True
     assert actions["install_public_seed"]["atomic_visibility"] is True

@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from . import nervous_quality
-from . import typing_nervous_adapters
+from abyss_machine import typing_nervous_adapters
 
 
 MappingPort = Callable[..., Mapping[str, Any]]

@@ -12,7 +12,7 @@ from typing import Any, Callable, Mapping
 
 from . import nervous_index
 from . import nervous_semantic
-from . import typing_nervous_adapters
+from abyss_machine import typing_nervous_adapters
 
 
 RunCommand = Callable[[list[str], float, Mapping[str, str] | None], Mapping[str, Any]]

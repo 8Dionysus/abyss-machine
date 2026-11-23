@@ -21,7 +21,7 @@ from typing import Any, Mapping, Sequence
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from .artifact_bundles import trust_gate
+from abyss_machine.organs.artifacts.artifact_bundles import trust_gate
 
 
 GATE_BUNDLE_SCHEMA = "abyss-stack-machine-code-intelligence-gate-v1"

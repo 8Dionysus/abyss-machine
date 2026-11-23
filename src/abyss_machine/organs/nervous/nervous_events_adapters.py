@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from . import snapshot_history
+from abyss_machine import snapshot_history
 
 import datetime as dt
 import grp
@@ -14,7 +14,7 @@ from typing import Any, Callable
 
 from . import nervous_events
 from . import nervous_index
-from . import typing_nervous_adapters
+from abyss_machine import typing_nervous_adapters
 
 
 RecordsReaderPort = Callable[[Path], tuple[list[dict[str, Any]], list[dict[str, Any]]]]

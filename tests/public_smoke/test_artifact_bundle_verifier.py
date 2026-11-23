@@ -592,8 +592,8 @@ def test_artifacts_requirements_refresh_survives_unavailable_optional_group(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     requirements_root = tmp_path / "requirements"
-    monkeypatch.setattr(cli, "ARTIFACTS_REQUIREMENTS_ROOT", requirements_root)
-    monkeypatch.setattr(cli, "ARTIFACTS_REQUIREMENTS_LATEST_PATH", requirements_root / "latest.json")
+    monkeypatch.setattr(cli.artifacts_cli, "ARTIFACTS_REQUIREMENTS_ROOT", requirements_root)
+    monkeypatch.setattr(cli.artifacts_cli, "ARTIFACTS_REQUIREMENTS_LATEST_PATH", requirements_root / "latest.json")
     monkeypatch.setattr(cli, "ARTIFACTS_INDEX_PATH", tmp_path / "artifacts-index.json")
 
     def unavailable_chown(*_args: object, **_kwargs: object) -> None:
@@ -615,8 +615,8 @@ def test_artifacts_requirements_refresh_survives_unavailable_optional_group(
 
 def test_artifacts_scenarios_cli_writes_latest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
     scenarios_root = tmp_path / "scenarios"
-    monkeypatch.setattr(cli, "ARTIFACTS_SCENARIOS_ROOT", scenarios_root)
-    monkeypatch.setattr(cli, "ARTIFACTS_SCENARIOS_LATEST_PATH", scenarios_root / "latest.json")
+    monkeypatch.setattr(cli.artifacts_cli, "ARTIFACTS_SCENARIOS_ROOT", scenarios_root)
+    monkeypatch.setattr(cli.artifacts_cli, "ARTIFACTS_SCENARIOS_LATEST_PATH", scenarios_root / "latest.json")
     monkeypatch.setattr(cli, "ARTIFACTS_INDEX_PATH", tmp_path / "index.json")
 
     rc = cli.main(["artifacts", "scenarios", "--scenario-id", "eval_report", "--json"])
@@ -637,8 +637,8 @@ def test_artifacts_scenarios_cli_writes_latest(tmp_path: Path, monkeypatch: pyte
 
 def test_artifacts_affected_cli_fails_on_operational_blocking(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
     affected_root = tmp_path / "affected"
-    monkeypatch.setattr(cli, "ARTIFACTS_AFFECTED_ROOT", affected_root)
-    monkeypatch.setattr(cli, "ARTIFACTS_AFFECTED_LATEST_PATH", affected_root / "latest.json")
+    monkeypatch.setattr(cli.artifacts_cli, "ARTIFACTS_AFFECTED_ROOT", affected_root)
+    monkeypatch.setattr(cli.artifacts_cli, "ARTIFACTS_AFFECTED_LATEST_PATH", affected_root / "latest.json")
     monkeypatch.setattr(cli, "ARTIFACTS_INDEX_PATH", tmp_path / "index.json")
 
     rc = cli.main(
@@ -671,8 +671,8 @@ def test_artifacts_affected_cli_exit_reflects_write_errors(
     capsys,
 ) -> None:
     affected_root = tmp_path / "affected"
-    monkeypatch.setattr(cli, "ARTIFACTS_AFFECTED_ROOT", affected_root)
-    monkeypatch.setattr(cli, "ARTIFACTS_AFFECTED_LATEST_PATH", affected_root / "latest.json")
+    monkeypatch.setattr(cli.artifacts_cli, "ARTIFACTS_AFFECTED_ROOT", affected_root)
+    monkeypatch.setattr(cli.artifacts_cli, "ARTIFACTS_AFFECTED_LATEST_PATH", affected_root / "latest.json")
     monkeypatch.setattr(cli, "ARTIFACTS_INDEX_PATH", tmp_path / "index.json")
 
     def fake_atomic_write(path: Path, payload: dict[str, object], mode: int) -> str | None:
@@ -706,8 +706,8 @@ def test_artifacts_affected_cli_exit_reflects_write_errors(
 
 def test_artifacts_affected_cli_can_fail_on_accepted_sibling_lag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
     affected_root = tmp_path / "affected"
-    monkeypatch.setattr(cli, "ARTIFACTS_AFFECTED_ROOT", affected_root)
-    monkeypatch.setattr(cli, "ARTIFACTS_AFFECTED_LATEST_PATH", affected_root / "latest.json")
+    monkeypatch.setattr(cli.artifacts_cli, "ARTIFACTS_AFFECTED_ROOT", affected_root)
+    monkeypatch.setattr(cli.artifacts_cli, "ARTIFACTS_AFFECTED_LATEST_PATH", affected_root / "latest.json")
     monkeypatch.setattr(cli, "ARTIFACTS_INDEX_PATH", tmp_path / "index.json")
 
     rc = cli.main(
@@ -1304,7 +1304,7 @@ def _mock_trust_tools_available(
     controls: tuple[str, ...] = ("abi_signature", "slsa_in_toto"),
 ) -> None:
     monkeypatch.setattr(
-        cli,
+        cli.artifacts_cli,
         "artifacts_trust_tools",
         lambda write_latest=False: {
             "summary": {
@@ -1553,7 +1553,7 @@ def test_trust_coverage_durable_only_excludes_rows_with_unavailable_required_con
     _write_role_registry_latest(registry, consumer_contract=consumer_contract)
     monkeypatch.setenv("ABYSS_MACHINE_ARTIFACT_WORKSPACE_ROOTS", str(workspace))
     monkeypatch.setattr(
-        cli,
+        cli.artifacts_cli,
         "artifacts_trust_tools",
         lambda write_latest=False: {
             "summary": {
@@ -2484,7 +2484,7 @@ def test_trust_coverage_exposes_pre_organization_c2pa_onboarding(
     registry = tmp_path / "registry"
     _write_public_media_registry_record(registry, c2pa_trust=c2pa_trust)
     monkeypatch.setattr(
-        cli,
+        cli.artifacts_cli,
         "artifacts_trust_tools",
         lambda write_latest=False: {
             "summary": {
@@ -2527,7 +2527,7 @@ def test_trust_coverage_derives_legacy_production_c2pa_onboarding_from_latest_tr
     registry = tmp_path / "registry"
     _write_public_media_registry_record(registry, c2pa_trust=c2pa_trust)
     monkeypatch.setattr(
-        cli,
+        cli.artifacts_cli,
         "artifacts_trust_tools",
         lambda write_latest=False: {
             "summary": {
@@ -2671,7 +2671,7 @@ def test_trust_coverage_exposes_registry_path_warning_for_empty_shadow_registry(
     )
     assert registered["ok"] is True
     monkeypatch.setattr(
-        cli,
+        cli.artifacts_cli,
         "artifacts_trust_tools",
         lambda write_latest=False: {
             "summary": {
@@ -3436,7 +3436,7 @@ def test_artifact_affected_marks_contract_source_as_stale(tmp_path: Path) -> Non
     )
 
     affected = artifact_bundles.artifact_affected(
-        ["src/abyss_machine/artifact_bundles.py"],
+        ["src/abyss_machine/organs/artifacts/artifact_bundles.py"],
         artifact_class="public_source_seed",
         registry_dir=registry,
     )
@@ -3468,7 +3468,7 @@ def test_artifact_affected_keeps_rebuild_when_contract_source_and_abi_digest_are
     _rewrite_latest_record(registry, abi_subject_digest="sha256:" + "0" * 64)
 
     affected = artifact_bundles.artifact_affected(
-        ["src/abyss_machine/artifact_bundles.py"],
+        ["src/abyss_machine/organs/artifacts/artifact_bundles.py"],
         artifact_class="public_source_seed",
         registry_dir=registry,
     )

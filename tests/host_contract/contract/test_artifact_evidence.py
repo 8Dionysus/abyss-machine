@@ -12,7 +12,7 @@ pytestmark = [pytest.mark.quick, pytest.mark.contract]
 
 def _quiet_evidence(monkeypatch, machine, backup_status: str = "heavy-latest") -> None:
     monkeypatch.setattr(
-        machine,
+        machine.artifacts_cli,
         "artifact_backup_state",
         lambda path: {
             "status": backup_status,
@@ -22,9 +22,9 @@ def _quiet_evidence(monkeypatch, machine, backup_status: str = "heavy-latest") -
             "restore_command": f"rsync -aHAX /abyss/Backups/heavy/latest/example/ {path}/",
         },
     )
-    monkeypatch.setattr(machine, "artifact_process_refs", lambda path: {"active": False, "refs": [], "ref_count": 0})
+    monkeypatch.setattr(machine.artifacts_cli, "artifact_process_refs", lambda path: {"active": False, "refs": [], "ref_count": 0})
     monkeypatch.setattr(
-        machine,
+        machine.artifacts_cli,
         "artifact_config_refs",
         lambda path, tokens: {
             "hits": [],
@@ -36,8 +36,8 @@ def _quiet_evidence(monkeypatch, machine, backup_status: str = "heavy-latest") -
             "by_source_kind": {},
         },
     )
-    monkeypatch.setattr(machine, "artifact_service_refs", lambda spec: {"active": False, "units": []})
-    monkeypatch.setattr(machine, "artifact_container_refs", lambda path, spec: {"active": False, "containers": []})
+    monkeypatch.setattr(machine.artifacts_cli, "artifact_service_refs", lambda spec: {"active": False, "units": []})
+    monkeypatch.setattr(machine.artifacts_cli, "artifact_container_refs", lambda path, spec: {"active": False, "containers": []})
     monkeypatch.setattr(machine, "storage_path_protection", lambda path: {"decision": "allow_candidate", "class": "host_owned_allowed"})
 
 
@@ -90,7 +90,7 @@ def test_docs_and_bak_refs_do_not_count_as_live_config(tmp_path: Path, monkeypat
     docs.write_text(f"docs mention {artifact}\n", encoding="utf-8")
     old.write_text(f"old backup mentions {artifact}\n", encoding="utf-8")
     source.write_text(f'{{"cache_dir": "{artifact}"}}\n', encoding="utf-8")
-    monkeypatch.setattr(machine, "artifact_config_scan_files", lambda: [docs, old, source])
+    monkeypatch.setattr(machine.artifacts_cli, "artifact_config_scan_files", lambda: [docs, old, source])
 
     refs = machine.artifact_config_refs(artifact, [])
 
@@ -158,7 +158,7 @@ def test_dictation_openvino_artifact_classifies_active_route_high(tmp_path: Path
     artifact = tmp_path / "openvino" / "dictation-server"
     artifact.mkdir(parents=True)
     _quiet_evidence(monkeypatch, machine)
-    monkeypatch.setattr(machine, "artifact_service_refs", lambda spec: {"active": True, "units": [{"unit": "abyss-dictation-server.service"}]})
+    monkeypatch.setattr(machine.artifacts_cli, "artifact_service_refs", lambda spec: {"active": True, "units": [{"unit": "abyss-dictation-server.service"}]})
 
     record = machine.artifact_record_for_spec(
         {

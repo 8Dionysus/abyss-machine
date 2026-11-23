@@ -32,8 +32,8 @@ host or `abyss-stack` policy.
 ## Surfaces
 
 - `port.manifest.json` declares the owner-local question and measurement.
-- `src/abyss_machine/ai_runtime_contracts.py` owns the pure derivation and
+- `src/abyss_machine/organs/ai/ai_runtime_contracts.py` owns the pure derivation and
   workload-stats document shape.
-- `src/abyss_machine/ai_runtime_adapters.py` binds private workload records to
+- `src/abyss_machine/organs/ai/ai_runtime_adapters.py` binds private workload records to
   that read model.
 - `aoa-stats` owns shared validation and cross-owner composition.

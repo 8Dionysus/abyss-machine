@@ -65,7 +65,7 @@ def run_registry_roundtrip(bundle_dir: Path, registry_dir: Path, *, artifact_cla
         registry_dir=registry_dir,
     )
     affected = artifact_bundles.artifact_affected(
-        ["src/abyss_machine/artifact_bundles.py"],
+        ["src/abyss_machine/organs/artifacts/artifact_bundles.py"],
         artifact_class=artifact_class,
         registry_dir=registry_dir,
     )

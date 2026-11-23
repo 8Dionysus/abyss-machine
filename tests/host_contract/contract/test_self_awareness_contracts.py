@@ -695,7 +695,7 @@ def test_nervous_brief_returns_process_cache_copy(monkeypatch, abyss_machine_mod
         "ok": True,
         "nested": {"value": "original"},
     }
-    monkeypatch.setattr(abyss_machine_module, "NERVOUS_BRIEF_CACHE", {"now:6:False": cached})
+    monkeypatch.setattr(abyss_machine_module.nervous_cli, "NERVOUS_BRIEF_CACHE", {"now:6:False": cached})
 
     first = abyss_machine_module.nervous_brief(scope="now", limit=6, refresh=False, write_latest=True)
     first["nested"]["value"] = "changed"
@@ -1071,9 +1071,9 @@ def test_self_awareness_working_stack_inventory_projects_runtime_body_without_st
     def fail_heavy_ai_capability_refresh(*args, **kwargs):
         raise AssertionError("working-stack inventory must consume latest AI capability evidence")
 
-    monkeypatch.setattr(abyss_machine_module, "ai_capabilities", fail_heavy_ai_capability_refresh)
+    monkeypatch.setattr(abyss_machine_module.ai_cli, "ai_capabilities", fail_heavy_ai_capability_refresh)
     monkeypatch.setattr(
-        abyss_machine_module,
+        abyss_machine_module.ai_cli,
         "ai_capabilities_latest",
         lambda: {
             "schema": "abyss_machine_ai_capabilities_v1",
@@ -1223,7 +1223,7 @@ def test_self_awareness_working_stack_uses_service_selection_policy_for_nonresid
     monkeypatch.setattr(abyss_machine_module, "self_awareness_working_stack_container_tool_probes", lambda runtime_by_service, enabled=True: [])
     monkeypatch.setattr(abyss_machine_module, "self_awareness_working_stack_tts_smoke_probes", lambda enabled=True: [])
     monkeypatch.setattr(
-        abyss_machine_module,
+        abyss_machine_module.ai_cli,
         "ai_capabilities_latest",
         lambda: {"schema": "abyss_machine_ai_capabilities_v1", "capabilities": {}},
     )
@@ -1317,7 +1317,7 @@ def test_self_awareness_working_stack_reads_tts_synthesis_artifact_as_on_demand_
     monkeypatch.setattr(abyss_machine_module, "self_awareness_working_stack_endpoint_probes", lambda enabled=True: [])
     monkeypatch.setattr(abyss_machine_module, "self_awareness_working_stack_container_tool_probes", lambda runtime_by_service, enabled=True: [])
     monkeypatch.setattr(
-        abyss_machine_module,
+        abyss_machine_module.ai_cli,
         "ai_capabilities_latest",
         lambda: {"schema": "abyss_machine_ai_capabilities_v1", "capabilities": {}},
     )
@@ -5981,10 +5981,10 @@ def test_memory_hotpath_probe_uses_selected_tts_profile_without_live_services(
         }
 
     monkeypatch.setattr(abyss_machine_module, "memory_residency", fake_residency)
-    monkeypatch.setattr(abyss_machine_module, "ai_tts_server_status", lambda write_latest=True: {"ok": True, "service": {"active": True, "enabled": True}, "ping": {"profile": "quality-compact"}})
-    monkeypatch.setattr(abyss_machine_module, "ai_policy", lambda write_latest=True: {"class": "green", "heavy_policy": "allowed", "can_run_heavy": True})
-    monkeypatch.setattr(abyss_machine_module, "ai_tts_synth", fake_tts_synth)
-    monkeypatch.setattr(abyss_machine_module, "dictation_transcribe", lambda audio_path, profile: {"ok": True, "via": "fixture", "client_elapsed_sec": 0.1, "segments": [], "text": "ok"})
+    monkeypatch.setattr(abyss_machine_module.ai_cli, "ai_tts_server_status", lambda write_latest=True: {"ok": True, "service": {"active": True, "enabled": True}, "ping": {"profile": "quality-compact"}})
+    monkeypatch.setattr(abyss_machine_module.ai_cli, "ai_policy", lambda write_latest=True: {"class": "green", "heavy_policy": "allowed", "can_run_heavy": True})
+    monkeypatch.setattr(abyss_machine_module.ai_cli, "ai_tts_synth", fake_tts_synth)
+    monkeypatch.setattr(abyss_machine_module.dictation_cli, "dictation_transcribe", lambda audio_path, profile: {"ok": True, "via": "fixture", "client_elapsed_sec": 0.1, "segments": [], "text": "ok"})
     monkeypatch.setattr(abyss_machine_module, "memory_hotpath_llm_probe", lambda include_llm, limit: {"mode": "latest_only", "executed": False, "elapsed_ms": 12.0})
 
     data = abyss_machine_module.memory_hotpath_probe(
@@ -6019,7 +6019,7 @@ def test_memory_hotpath_probe_uses_selected_tts_profile_without_live_services(
             "policy_reasons": [],
         }
 
-    monkeypatch.setattr(abyss_machine_module, "ai_tts_synth", fake_tts_failure)
+    monkeypatch.setattr(abyss_machine_module.ai_cli, "ai_tts_synth", fake_tts_failure)
     failed = abyss_machine_module.memory_hotpath_probe(
         text="fixture",
         tts_profile="lab-compact",

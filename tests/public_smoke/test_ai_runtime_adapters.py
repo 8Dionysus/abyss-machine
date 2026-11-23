@@ -1119,7 +1119,7 @@ def test_cli_stt_fixture_delegates_generation_to_runtime_adapter(monkeypatch) ->
         calls.update(kwargs)
         return {"ok": True, "path": "/fixtures/stt/ru-smoke.wav", "source": "adapter"}
 
-    monkeypatch.setattr(cli, "AI_FIXTURE_ROOT", Path("/fixtures"))
+    monkeypatch.setattr(cli.ai_cli, "AI_FIXTURE_ROOT", Path("/fixtures"))
     monkeypatch.setattr(cli.ai_runtime_adapters, "stt_eval_fixture", fake_stt_eval_fixture)
 
     result = cli.ensure_stt_fixture("ref")
@@ -1234,11 +1234,11 @@ def test_cli_stt_eval_delegates_transport_to_runtime_adapter(monkeypatch) -> Non
         return {"suite": "stt", "ok": True, "source": "adapter"}
 
     monkeypatch.setattr(
-        cli,
+        cli.ai_cli,
         "ai_config",
         lambda: {"eval": {"stt_reference_text": reference, "stt_profiles": ["fast"], "stt_similarity_warn_below": 0.9}},
     )
-    monkeypatch.setattr(cli, "ensure_stt_fixture", lambda text: fixture)
+    monkeypatch.setattr(cli.ai_cli, "ensure_stt_fixture", lambda text: fixture)
     monkeypatch.setattr(cli.ai_runtime_adapters, "stt_eval_run", fake_stt_eval_run)
 
     result = cli.ai_eval_stt()
@@ -1753,7 +1753,7 @@ def test_cli_ai_policy_delegates_live_input_collection_to_runtime_adapter(monkey
         calls.update(kwargs)
         return {"schema": "fixture_policy", "ok": True}
 
-    monkeypatch.setattr(cli, "ai_config", lambda: {"thermal_policy": {}})
+    monkeypatch.setattr(cli.ai_cli, "ai_config", lambda: {"thermal_policy": {}})
     monkeypatch.setattr(cli.ai_runtime_adapters, "policy_readmodel_from_live_inputs", fake_policy_from_live_inputs)
 
     assert cli.ai_policy(write_latest=False, cpu_thermal_map=provided_cpu_map) == {"schema": "fixture_policy", "ok": True}
@@ -2344,7 +2344,7 @@ def test_cli_ai_llm_validate_delegates_live_input_collection_to_runtime_adapter(
         calls.update(kwargs)
         return {"schema": "fixture_llm_validate", "ok": True}
 
-    monkeypatch.setattr(cli, "ai_llm_config", lambda: {"families": {}})
+    monkeypatch.setattr(cli.ai_cli, "ai_llm_config", lambda: {"families": {}})
     monkeypatch.setattr(cli.ai_runtime_adapters, "llm_validate_readmodel_from_live_inputs", fake_validate_from_live_inputs)
 
     assert cli.ai_llm_validate(write_latest=False) == {"schema": "fixture_llm_validate", "ok": True}
@@ -2376,7 +2376,7 @@ def test_cli_model_inventory_wrapper_binds_adapter_without_writing(monkeypatch) 
         calls.update(kwargs)
         return {"ok": True, "summary": {"entries": 0}}
 
-    monkeypatch.setattr(cli, "ai_config", lambda: {"model_roots": []})
+    monkeypatch.setattr(cli.ai_cli, "ai_config", lambda: {"model_roots": []})
     monkeypatch.setattr(cli, "now_iso", lambda: STAMP)
     monkeypatch.setattr(cli.ai_runtime_adapters, "models_inventory_readmodel", fake_models_inventory_readmodel)
 
@@ -2418,10 +2418,10 @@ def test_cli_openvino_runner_wrappers_bind_adapter_ports(monkeypatch, tmp_path: 
         calls["text"] = kwargs
         return {"suite": "text", "ok": True}
 
-    monkeypatch.setattr(cli, "ai_config", lambda: config)
+    monkeypatch.setattr(cli.ai_cli, "ai_config", lambda: config)
     monkeypatch.setattr(cli.shutil, "which", lambda name: "/which/python" if name == "abyss-openvino-python" else None)
-    monkeypatch.setattr(cli, "ai_subprocess_env", lambda extra=None: {"ENV": "1"})
-    monkeypatch.setattr(cli, "ai_openvino_cache_dir", lambda label="general": tmp_path / "cache" / str(label))
+    monkeypatch.setattr(cli.ai_cli, "ai_subprocess_env", lambda extra=None: {"ENV": "1"})
+    monkeypatch.setattr(cli.ai_cli, "ai_openvino_cache_dir", lambda label="general": tmp_path / "cache" / str(label))
     monkeypatch.setattr(cli.ai_runtime_adapters, "openvino_smoke_device", fake_smoke)
     monkeypatch.setattr(cli.ai_runtime_adapters, "openvino_embedding_eval", fake_embedding)
     monkeypatch.setattr(cli.ai_runtime_adapters, "openvino_text_eval", fake_text)

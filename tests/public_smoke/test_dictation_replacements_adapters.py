@@ -206,7 +206,7 @@ def test_cli_replacements_wrappers_bind_adapter(monkeypatch, tmp_path: Path) -> 
     paths = _paths(tmp_path)
     captured: dict[str, object] = {}
 
-    monkeypatch.setattr(cli, "dictation_replacements_paths", lambda: paths)
+    monkeypatch.setattr(cli.dictation_cli, "dictation_replacements_paths", lambda: paths)
     monkeypatch.setattr(cli.time, "time", lambda: 123)
 
     def fake_load(paths_arg: object, **kwargs: object) -> dict[str, object]:

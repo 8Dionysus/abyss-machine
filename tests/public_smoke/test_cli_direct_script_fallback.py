@@ -26,7 +26,7 @@ def test_direct_script_package_bindings_cover_lazy_and_eager_modules() -> None:
     assert "doctor_adapters" in lazy_modules
     assert "self_awareness_adapters" in lazy_modules
     assert all(
-        (ROOT / "src" / "abyss_machine" / f"{module_name}.py").is_file()
+        (ROOT / "src" / "abyss_machine" / f"{module_name.replace('.', '/')}.py").is_file()
         for module_name in lazy_modules
     )
 

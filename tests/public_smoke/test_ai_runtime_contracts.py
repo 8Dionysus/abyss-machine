@@ -477,9 +477,9 @@ def test_llm_registry_cli_delegates_document_shape_to_module(monkeypatch) -> Non
         return profile_statuses[f"{family_name}.{profile_name}"]
 
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T12:00:00+00:00")
-    monkeypatch.setattr(cli, "ai_llm_config", lambda: config)
-    monkeypatch.setattr(cli, "ai_llm_runtime_status", fake_runtime_status)
-    monkeypatch.setattr(cli, "ai_llm_profile_status", fake_profile_status)
+    monkeypatch.setattr(cli.ai_cli, "ai_llm_config", lambda: config)
+    monkeypatch.setattr(cli.ai_cli, "ai_llm_runtime_status", fake_runtime_status)
+    monkeypatch.setattr(cli.ai_cli, "ai_llm_profile_status", fake_profile_status)
     monkeypatch.setattr(cli, "ai_daily_jsonl_path", lambda root: Path("/var/lib/abyss-machine/ai/llm/registry/2026/06/2026-06-25.jsonl"))
 
     result = cli.ai_llm_registry(write_latest=False)
@@ -586,10 +586,10 @@ def test_llm_validate_cli_delegates_contract_checks_and_document(monkeypatch) ->
         return {"schema": expected_schema}
 
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T12:00:00+00:00")
-    monkeypatch.setattr(cli, "ai_llm_config", _llm_registry_config)
-    monkeypatch.setattr(cli, "ai_llm_registry", lambda write_latest=True: registry)
-    monkeypatch.setattr(cli, "ai_token_accounting_profiles", lambda write_latest=True, registry=None: token_profiles)
-    monkeypatch.setattr(cli, "ai_llm_paths", lambda: paths)
+    monkeypatch.setattr(cli.ai_cli, "ai_llm_config", _llm_registry_config)
+    monkeypatch.setattr(cli.ai_cli, "ai_llm_registry", lambda write_latest=True: registry)
+    monkeypatch.setattr(cli.ai_cli, "ai_token_accounting_profiles", lambda write_latest=True, registry=None: token_profiles)
+    monkeypatch.setattr(cli.ai_cli, "ai_llm_paths", lambda: paths)
     monkeypatch.setattr(cli, "validation_add_path_exists", fake_path_check)
     monkeypatch.setattr(cli, "validation_json_file", fake_json_check)
 
@@ -724,10 +724,10 @@ def test_openvino_benchmark_cli_delegates_device_plan_and_document(monkeypatch) 
         return {"device": device, "ok": True, "elapsed_sec": 0.5}
 
     monkeypatch.setattr(cli, "ai_resource_snapshot", lambda: next(snapshots))
-    monkeypatch.setattr(cli, "ai_config", lambda: {"benchmark": benchmark_config})
-    monkeypatch.setattr(cli, "ai_policy_gate_for_class", lambda declared_class, operation, force=False: gate)
-    monkeypatch.setattr(cli, "openvino_runtime_info", lambda: runtime)
-    monkeypatch.setattr(cli, "ai_openvino_smoke_device", fake_smoke)
+    monkeypatch.setattr(cli.ai_cli, "ai_config", lambda: {"benchmark": benchmark_config})
+    monkeypatch.setattr(cli.ai_cli, "ai_policy_gate_for_class", lambda declared_class, operation, force=False: gate)
+    monkeypatch.setattr(cli.ai_cli, "openvino_runtime_info", lambda: runtime)
+    monkeypatch.setattr(cli.ai_cli, "ai_openvino_smoke_device", fake_smoke)
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T12:00:00+00:00")
 
     expected_results = [
@@ -890,12 +890,12 @@ def test_stt_eval_cli_delegates_scoring_and_result_envelopes(monkeypatch) -> Non
     ticks = iter([10.0, 10.25])
 
     monkeypatch.setattr(
-        cli,
+        cli.ai_cli,
         "ai_config",
         lambda: {"eval": {"stt_reference_text": reference, "stt_profiles": ["fast"], "stt_similarity_warn_below": 0.9}},
     )
-    monkeypatch.setattr(cli, "ensure_stt_fixture", lambda text: fixture)
-    monkeypatch.setattr(cli, "dictation_transcribe", lambda path, profile: transcript)
+    monkeypatch.setattr(cli.ai_cli, "ensure_stt_fixture", lambda text: fixture)
+    monkeypatch.setattr(cli.dictation_cli, "dictation_transcribe", lambda path, profile: transcript)
     monkeypatch.setattr(cli, "ai_resource_snapshot", lambda: next(snapshots))
     monkeypatch.setattr(cli.time, "monotonic", lambda: next(ticks))
 
@@ -1043,12 +1043,12 @@ def test_ai_eval_quick_uses_module_execution_plan_and_preserves_result_order(mon
     }
 
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T12:00:00+00:00")
-    monkeypatch.setattr(cli, "ai_config", lambda: {"eval": {"quick_suites": ["stt", "mystery", "text"]}})
+    monkeypatch.setattr(cli.ai_cli, "ai_config", lambda: {"eval": {"quick_suites": ["stt", "mystery", "text"]}})
     monkeypatch.setattr(cli, "ai_resource_snapshot", lambda: next(snapshots))
-    monkeypatch.setattr(cli, "ai_policy_gate_for_class", lambda declared_class, operation, force=False: gate)
-    monkeypatch.setattr(cli, "ai_eval_stt", lambda: {"suite": "stt", "ok": True})
-    monkeypatch.setattr(cli, "ai_eval_embeddings", lambda: {"suite": "embeddings", "ok": True})
-    monkeypatch.setattr(cli, "ai_eval_text", lambda: {"suite": "text", "ok": True})
+    monkeypatch.setattr(cli.ai_cli, "ai_policy_gate_for_class", lambda declared_class, operation, force=False: gate)
+    monkeypatch.setattr(cli.ai_cli, "ai_eval_stt", lambda: {"suite": "stt", "ok": True})
+    monkeypatch.setattr(cli.ai_cli, "ai_eval_embeddings", lambda: {"suite": "embeddings", "ok": True})
+    monkeypatch.setattr(cli.ai_cli, "ai_eval_text", lambda: {"suite": "text", "ok": True})
 
     result = cli.ai_eval_quick(suite="quick", write_latest=False, force=False)
     expected = eval_document(
@@ -1367,8 +1367,8 @@ def test_ai_workload_measurement_cli_wrappers_delegate_to_module(monkeypatch) ->
 
     inputs = _workload_measurement_inputs()
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T12:10:00+00:00")
-    monkeypatch.setattr(cli, "ai_config", lambda: inputs["config"])
-    monkeypatch.setattr(cli, "dictation_profiles", lambda: inputs["dictation_profile_defs"])
+    monkeypatch.setattr(cli.ai_cli, "ai_config", lambda: inputs["config"])
+    monkeypatch.setattr(cli.dictation_cli, "dictation_profiles", lambda: inputs["dictation_profile_defs"])
 
     common = {
         "schema_prefix": cli.SCHEMA_PREFIX,
@@ -1475,8 +1475,8 @@ def test_ai_workload_stats_cli_delegates_to_module(monkeypatch) -> None:
 
     inputs = _workload_stats_inputs()
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T12:00:00+00:00")
-    monkeypatch.setattr(cli, "ai_config", lambda: inputs["config"])
-    monkeypatch.setattr(cli, "ai_workload_read_measurements", lambda: inputs["records"])
+    monkeypatch.setattr(cli.ai_cli, "ai_config", lambda: inputs["config"])
+    monkeypatch.setattr(cli.ai_cli, "ai_workload_read_measurements", lambda: inputs["records"])
 
     result = cli.ai_workload_stats(write_latest=False)
     expected = workload_stats_document(
@@ -1545,11 +1545,11 @@ def test_ai_workload_refresh_cli_delegates_policy_and_envelope(monkeypatch) -> N
     stats = {"ok": True, "summary": {"records": 2}}
     benchmark_calls: list[str] = []
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T12:00:00+00:00")
-    monkeypatch.setattr(cli, "ai_config", lambda: config)
-    monkeypatch.setattr(cli, "ai_policy", lambda write_latest=True: policy)
-    monkeypatch.setattr(cli, "ai_benchmark_quick", lambda write_latest=True: benchmark_calls.append("called") or {"ok": True})
-    monkeypatch.setattr(cli, "ai_workload_refresh_from_latest", lambda: refresh)
-    monkeypatch.setattr(cli, "ai_workload_stats", lambda write_latest=True: stats)
+    monkeypatch.setattr(cli.ai_cli, "ai_config", lambda: config)
+    monkeypatch.setattr(cli.ai_cli, "ai_policy", lambda write_latest=True: policy)
+    monkeypatch.setattr(cli.ai_cli, "ai_benchmark_quick", lambda write_latest=True: benchmark_calls.append("called") or {"ok": True})
+    monkeypatch.setattr(cli.ai_cli, "ai_workload_refresh_from_latest", lambda: refresh)
+    monkeypatch.setattr(cli.ai_cli, "ai_workload_stats", lambda write_latest=True: stats)
 
     result = cli.ai_workload_refresh(write_latest=False, run_probe=None)
     plan = workload_refresh_probe_plan(config=config, policy=policy, run_probe=None)
@@ -1648,10 +1648,10 @@ def test_ai_workload_status_cli_delegates_to_module(monkeypatch) -> None:
 
     inputs = _workload_status_inputs()
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T12:00:00+00:00")
-    monkeypatch.setattr(cli, "ai_workload_taxonomy", lambda write_latest=True: inputs["taxonomy"])
-    monkeypatch.setattr(cli, "ai_workload_refresh_from_latest", lambda: inputs["refresh"])
-    monkeypatch.setattr(cli, "ai_workload_stats", lambda write_latest=True: inputs["stats"])
-    monkeypatch.setattr(cli, "ai_policy", lambda write_latest=True: inputs["policy"])
+    monkeypatch.setattr(cli.ai_cli, "ai_workload_taxonomy", lambda write_latest=True: inputs["taxonomy"])
+    monkeypatch.setattr(cli.ai_cli, "ai_workload_refresh_from_latest", lambda: inputs["refresh"])
+    monkeypatch.setattr(cli.ai_cli, "ai_workload_stats", lambda write_latest=True: inputs["stats"])
+    monkeypatch.setattr(cli.ai_cli, "ai_policy", lambda write_latest=True: inputs["policy"])
     monkeypatch.setattr(cli, "ai_daily_jsonl_path", lambda root: f"{root}/today.jsonl")
     monkeypatch.setattr(cli, "systemd_unit", lambda name: {"name": name, "active": name.endswith(".timer")})
 
@@ -1998,8 +1998,8 @@ def test_token_accounting_cli_contract_and_profile_documents_delegate_to_module(
         "candidate_paths": ["/runtime/llama-tokenize"],
         "library_paths": [],
     }
-    monkeypatch.setattr(cli, "ai_llm_registry", lambda write_latest=True: registry)
-    monkeypatch.setattr(cli, "ai_token_accounting_resolve_tokenizer", lambda profile: tokenizer)
+    monkeypatch.setattr(cli.ai_cli, "ai_llm_registry", lambda write_latest=True: registry)
+    monkeypatch.setattr(cli.ai_cli, "ai_token_accounting_resolve_tokenizer", lambda profile: tokenizer)
 
     profile_row = token_accounting_profile_entry("gemma4.spark", registry["profiles"]["gemma4.spark"], tokenizer)
     expected_profiles = token_accounting_profiles_document(
@@ -2051,7 +2051,7 @@ def test_token_accounting_cli_count_text_delegates_count_execution_contract(monk
         }
 
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T12:00:00+00:00")
-    monkeypatch.setattr(cli, "ai_token_accounting_profiles", lambda write_latest=True: profiles)
+    monkeypatch.setattr(cli.ai_cli, "ai_token_accounting_profiles", lambda write_latest=True: profiles)
     monkeypatch.setattr(cli.ai_runtime_adapters, "token_accounting_count_subprocess", fake_count_subprocess)
     monkeypatch.setenv("LD_LIBRARY_PATH", "/existing/lib")
 
@@ -2158,7 +2158,7 @@ def test_llm_paths_cli_delegates_to_module(monkeypatch) -> None:
 
     config = _llm_path_config()
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T12:00:00+00:00")
-    monkeypatch.setattr(cli, "ai_llm_config", lambda: config)
+    monkeypatch.setattr(cli.ai_cli, "ai_llm_config", lambda: config)
     monkeypatch.setattr(cli, "ai_daily_jsonl_path", lambda root: Path(f"/fixture/{Path(root).name}/today.jsonl"))
 
     expected = llm_paths_document(
@@ -2299,12 +2299,12 @@ def test_ai_capabilities_cli_delegates_projection_to_module(monkeypatch) -> None
     inputs = _capability_inputs()
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T12:00:00+00:00")
     monkeypatch.setattr(cli, "ai_devices_status", lambda write_latest=True: inputs["devices"])
-    monkeypatch.setattr(cli, "ai_models_inventory", lambda write_latest=True: inputs["models"])
-    monkeypatch.setattr(cli, "dictation_status", lambda: inputs["dictation"])
-    monkeypatch.setattr(cli, "ai_tts_profiles", lambda write_latest=True: inputs["tts_profiles"])
-    monkeypatch.setattr(cli, "ai_tts_latest_eval", lambda: inputs["latest_tts_eval"])
-    monkeypatch.setattr(cli, "ai_tts_latest_success_eval", lambda: inputs["latest_tts_success"])
-    monkeypatch.setattr(cli, "ai_llm_registry", lambda write_latest=True: inputs["llm_registry"])
+    monkeypatch.setattr(cli.ai_cli, "ai_models_inventory", lambda write_latest=True: inputs["models"])
+    monkeypatch.setattr(cli.dictation_cli, "dictation_status", lambda: inputs["dictation"])
+    monkeypatch.setattr(cli.ai_cli, "ai_tts_profiles", lambda write_latest=True: inputs["tts_profiles"])
+    monkeypatch.setattr(cli.ai_cli, "ai_tts_latest_eval", lambda: inputs["latest_tts_eval"])
+    monkeypatch.setattr(cli.ai_cli, "ai_tts_latest_success_eval", lambda: inputs["latest_tts_success"])
+    monkeypatch.setattr(cli.ai_cli, "ai_llm_registry", lambda write_latest=True: inputs["llm_registry"])
 
     def fake_load_json(path):
         text = str(path)
@@ -2450,7 +2450,7 @@ def test_ai_policy_cli_delegates_decision_to_module(monkeypatch) -> None:
 
     inputs = _policy_inputs()
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T12:00:00+00:00")
-    monkeypatch.setattr(cli, "ai_config", lambda: inputs["config"])
+    monkeypatch.setattr(cli.ai_cli, "ai_config", lambda: inputs["config"])
     monkeypatch.setattr(cli, "observability_status", lambda: {"latest": {"age_sec": 30, "battery": inputs["battery"]}})
     monkeypatch.setattr(cli, "observability_latest", lambda: {"latest": "unused"})
     monkeypatch.setattr(cli, "mode_status", lambda: inputs["mode"])

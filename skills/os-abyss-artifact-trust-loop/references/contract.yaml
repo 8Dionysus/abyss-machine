@@ -107,7 +107,7 @@ provenance:
   owner_surfaces:
     - manifests/artifact_signature_policy.manifest.json
     - manifests/artifact_bundles/README.md
-    - src/abyss_machine/artifact_bundles.py
+    - src/abyss_machine/organs/artifacts/artifact_bundles.py
   techniques_runtime_dependency: false
 
 health:

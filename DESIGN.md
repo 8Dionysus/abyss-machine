@@ -33,6 +33,13 @@ collapse into one public mirror.
 - `docs/`: route, install, operations, testing, validation, and publication
   context.
 - `tests/`: public smoke and imported host-contract development lanes.
+- `src/abyss_machine/`: the grafting-layer core: hardware drivers, OS
+  surfaces, desktop and input adapters, raw sensors with privacy guards, and
+  trust parts (change ledger, effect checks).
+- `src/abyss_machine/organs/`: reasoning, memory, AI-runtime, release and
+  application organs staged to leave for their AbyssOS owners. The core
+  reaches them only through lazy bindings in `abyss_machine.cli`;
+  `tests/public_smoke/test_organ_boundary.py` pins every remaining edge.
 
 ## Bootstrap Flow
 

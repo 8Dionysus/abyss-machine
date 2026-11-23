@@ -192,15 +192,15 @@ def test_cli_neural_rerank_scores_binds_live_adapter(monkeypatch, tmp_path: Path
     captured: dict[str, object] = {}
 
     monkeypatch.setattr(cli.shutil, "which", lambda name: str(python) if name == "abyss-openvino-python" else None)
-    monkeypatch.setattr(cli, "ai_config", lambda: {"openvino": {"python": "/unused"}})
-    monkeypatch.setattr(cli, "ai_subprocess_env", lambda: {"ENV": "1"})
+    monkeypatch.setattr(cli.ai_cli, "ai_config", lambda: {"openvino": {"python": "/unused"}})
+    monkeypatch.setattr(cli.ai_cli, "ai_subprocess_env", lambda: {"ENV": "1"})
     monkeypatch.setattr(cli, "ai_resource_snapshot", lambda: {"snapshot": True})
     monkeypatch.setattr(
         cli,
         "ai_resource_profile",
         lambda before, after, scope, description: {"before": before, "after": after, "scope": scope, "description": description},
     )
-    monkeypatch.setattr(cli, "ai_policy_gate_for_class", lambda resource_class, label, force=False: {"ok": True, "resource_class": resource_class, "label": label, "force": force})
+    monkeypatch.setattr(cli.ai_cli, "ai_policy_gate_for_class", lambda resource_class, label, force=False: {"ok": True, "resource_class": resource_class, "label": label, "force": force})
 
     def fake_adapter(query: str, items: list[dict[str, object]], **kwargs: object) -> dict[str, object]:
         captured["query"] = query

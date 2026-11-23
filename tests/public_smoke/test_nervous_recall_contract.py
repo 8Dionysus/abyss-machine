@@ -204,8 +204,8 @@ def test_cli_recall_pack_executes_module_plan_at_edge(monkeypatch) -> None:
         return hybrid_search
 
     monkeypatch.setattr(cli, "nervous_effective_privacy", lambda write_latest=False: {"global_pause": False})
-    monkeypatch.setattr(cli, "nervous_index_search", fake_index_search)
-    monkeypatch.setattr(cli, "nervous_rerank_search", fake_rerank_search)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_index_search", fake_index_search)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_rerank_search", fake_rerank_search)
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-26T12:00:00+00:00")
 
     lexical = cli.nervous_recall_pack("thermal", limit=3, source="facts", write_latest=False)
