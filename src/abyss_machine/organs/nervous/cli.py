@@ -577,56 +577,6 @@ NERVOUS_BROWSER_BOILERPLATE_PATTERNS = _core.nervous_source_contracts.BROWSER_BO
 NERVOUS_BROWSER_MEDIA_PATTERNS = _core.nervous_source_contracts.BROWSER_MEDIA_PATTERNS
 
 
-def nervous_atspi_state_contains(node: Any, state: Any) -> bool:
-    return _core.nervous_browser_content_adapters.atspi_state_contains(node, state)
-
-
-def nervous_atspi_node_text(Atspi: Any, node: Any, max_chars: int = 8000) -> str:
-    return _core.nervous_browser_content_adapters.atspi_node_text(Atspi, node, max_chars=max_chars)
-
-
-def nervous_atspi_collect_document_text(
-    Atspi: Any,
-    document: Any,
-    max_chars: int = _core.NERVOUS_BROWSER_CONTENT_MAX_CHARS,
-    max_nodes: int = _core.NERVOUS_BROWSER_ATSPI_TEXT_MAX_NODES,
-    max_children: int = _core.NERVOUS_BROWSER_ATSPI_MAX_CHILDREN,
-    max_depth: int = 18,
-) -> tuple[str, dict[str, Any]]:
-    return _core.nervous_browser_content_adapters.atspi_collect_document_text(
-        Atspi,
-        document,
-        max_chars=max_chars,
-        max_nodes=max_nodes,
-        max_children=max_children,
-        max_depth=max_depth,
-    )
-
-
-def nervous_atspi_document_attributes(Atspi: Any, document: Any) -> dict[str, Any]:
-    return _core.nervous_browser_content_adapters.atspi_document_attributes(Atspi, document)
-
-
-def nervous_atspi_browser_documents(
-    Atspi: Any,
-    app: Any,
-    max_nodes: int = _core.NERVOUS_BROWSER_ATSPI_SCAN_MAX_NODES,
-    max_children: int = _core.NERVOUS_BROWSER_ATSPI_MAX_CHILDREN,
-    max_depth: int = 16,
-) -> list[dict[str, Any]]:
-    return _core.nervous_browser_content_adapters.atspi_firefox_documents(
-        Atspi,
-        app,
-        max_nodes=max_nodes,
-        max_children=max_children,
-        max_depth=max_depth,
-    )
-
-
-def nervous_atspi_document_priority(document: dict[str, Any]) -> tuple[int, int, int, int]:
-    return _core.nervous_browser_content_adapters.atspi_document_priority(document)
-
-
 def nervous_fact_freshness(data: dict[str, Any]) -> dict[str, Any]:
     source_time = data.get("updated_at") or data.get("generated_at")
     return {
@@ -1296,65 +1246,8 @@ def nervous_records_from_jsonl_root(root: Path) -> tuple[list[dict[str, Any]], l
     return _core.typing_nervous_adapters.load_source_records_from_root(root)
 
 
-def nervous_jsonl_path_for_time(root: Path, value: Any) -> Path:
-    return nervous_events_adapters.jsonl_path_for_time(root, value)
-
-
 def nervous_severity_max(values: list[str]) -> str:
     return nervous_events_contracts.severity_max(values)
-
-
-def nervous_find_fact(record: dict[str, Any], name: str) -> dict[str, Any] | None:
-    return nervous_events_contracts.find_fact(record, name)
-
-
-def nervous_fact_evidence(fact: dict[str, Any] | None) -> dict[str, Any] | None:
-    return nervous_events_contracts.fact_evidence(fact)
-
-
-def nervous_event_record(
-    *,
-    event_type: str,
-    category: str,
-    observed_at: str | None,
-    title: str,
-    summary: str,
-    severity: str,
-    confidence: str,
-    source_ids: list[str],
-    evidence: list[dict[str, Any]],
-    payload: dict[str, Any] | None = None,
-    subject: str | None = None,
-    sensitivity: str = "machine_metadata",
-) -> dict[str, Any]:
-    return nervous_events_contracts.event_record(
-        event_type=event_type,
-        category=category,
-        observed_at=observed_at,
-        title=title,
-        summary=summary,
-        severity=severity,
-        confidence=confidence,
-        source_ids=source_ids,
-        evidence=evidence,
-        payload=payload,
-        subject=subject,
-        sensitivity=sensitivity,
-        schema_prefix=_core.SCHEMA_PREFIX,
-        version=_core.VERSION,
-        generated_at=_core.now_iso(),
-    )
-
-
-def nervous_storage_event(item: dict[str, Any], record: dict[str, Any], previous: dict[str, Any] | None) -> list[dict[str, Any]]:
-    return nervous_events_contracts.storage_event(
-        item,
-        record,
-        previous,
-        schema_prefix=_core.SCHEMA_PREFIX,
-        version=_core.VERSION,
-        generated_at=_core.now_iso(),
-    )
 
 
 def nervous_thermal_event_thresholds() -> dict[str, float]:
@@ -1368,77 +1261,9 @@ def nervous_thermal_event_thresholds() -> dict[str, float]:
     return nervous_events_contracts.thermal_event_thresholds(policy)
 
 
-def nervous_thermal_event_classification(
-    temp_float: float | None,
-    raw_thermal_class: str,
-) -> tuple[str, str, dict[str, float]]:
-    return nervous_events_contracts.thermal_event_classification(
-        temp_float,
-        raw_thermal_class,
-        nervous_thermal_event_thresholds(),
-    )
-
-
-def nervous_power_thermal_events(
-    item: dict[str, Any],
-    record: dict[str, Any],
-    previous_power_token: tuple[Any, ...] | None,
-    previous_thermal_class: str | None,
-) -> tuple[list[dict[str, Any]], tuple[Any, ...] | None, str | None]:
-    return nervous_events_contracts.power_thermal_events(
-        item,
-        record,
-        previous_power_token,
-        previous_thermal_class,
-        thresholds=nervous_thermal_event_thresholds(),
-        schema_prefix=_core.SCHEMA_PREFIX,
-        version=_core.VERSION,
-        generated_at=_core.now_iso(),
-    )
-
-
-def nervous_process_ai_events(item: dict[str, Any], record: dict[str, Any], previous_tokens: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    return nervous_events_contracts.process_ai_events(
-        item,
-        record,
-        previous_tokens,
-        schema_prefix=_core.SCHEMA_PREFIX,
-        version=_core.VERSION,
-        generated_at=_core.now_iso(),
-    )
-
-
-def nervous_systemd_events(item: dict[str, Any], record: dict[str, Any], previous_units: dict[str, tuple[Any, ...]]) -> tuple[list[dict[str, Any]], dict[str, tuple[Any, ...]]]:
-    return nervous_events_contracts.systemd_events(
-        item,
-        record,
-        previous_units,
-        schema_prefix=_core.SCHEMA_PREFIX,
-        version=_core.VERSION,
-        generated_at=_core.now_iso(),
-    )
-
-
 def nervous_events_from_fact_records(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     return nervous_events_contracts.events_from_fact_records(
         items,
-        thresholds=nervous_thermal_event_thresholds(),
-        fact_source_id=_core.nervous_fact_source_id,
-        deferred_source_ids=_core.nervous_deferred_source_ids(),
-        compact_json_func=nervous_compact_json_for_index,
-        schema_prefix=_core.SCHEMA_PREFIX,
-        version=_core.VERSION,
-    )
-
-
-def nervous_events_from_fact_records_with_state(
-    items: list[dict[str, Any]],
-    *,
-    initial_state: dict[str, Any] | None = None,
-) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
-    return nervous_events_contracts.events_from_fact_records_with_state(
-        items,
-        initial_state=initial_state,
         thresholds=nervous_thermal_event_thresholds(),
         fact_source_id=_core.nervous_fact_source_id,
         deferred_source_ids=_core.nervous_deferred_source_ids(),
@@ -1505,10 +1330,6 @@ def nervous_events_latest() -> dict[str, Any]:
     )
 
 
-def nervous_event_records() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    return nervous_records_from_jsonl_root(_core.NERVOUS_EVENTS_ROOT)
-
-
 def nervous_events_validate(write_latest: bool = True) -> dict[str, Any]:
     allowed_sources = _core.nervous_allowed_source_ids(_core.nervous_effective_sources(write_latest=False))
     return nervous_events_adapters.validate_events(
@@ -1522,17 +1343,6 @@ def nervous_events_validate(write_latest: bool = True) -> dict[str, Any]:
         write_latest_enabled=write_latest,
         latest_reader=_core.load_json_document,
         latest_writer=_core.safe_atomic_write_json,
-    )
-
-
-def nervous_episode_record(category: str, events: list[dict[str, Any]], day: str) -> dict[str, Any]:
-    return nervous_events_contracts.episode_record(
-        category,
-        events,
-        day,
-        schema_prefix=_core.SCHEMA_PREFIX,
-        version=_core.VERSION,
-        generated_at=_core.now_iso(),
     )
 
 
@@ -1636,23 +1446,6 @@ def nervous_enabled_index_source_ids(sources: dict[str, Any]) -> set[str]:
 
 def nervous_compact_json_for_index(value: Any, max_chars: int = 6000) -> str:
     return build_nervous_index_compact_json(value, max_chars=max_chars)
-
-
-def nervous_fact_index_payload(fact: dict[str, Any]) -> dict[str, Any]:
-    return build_nervous_index_fact_index_payload(fact)
-
-
-def nervous_record_is_safe_for_index(record: dict[str, Any], sources: dict[str, Any]) -> tuple[bool, str | None]:
-    return build_nervous_index_record_is_safe_for_index(record, sources, schema_prefix=_core.SCHEMA_PREFIX)
-
-
-def nervous_chunks_from_record(record: dict[str, Any], enabled_sources: set[str]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    return build_nervous_index_chunks_from_record(
-        record,
-        enabled_sources,
-        schema_prefix=_core.SCHEMA_PREFIX,
-        redact_text=_core.nervous_redact_index_text,
-    )
 
 
 def nervous_index_db_counts() -> dict[str, Any]:
@@ -1822,14 +1615,6 @@ def nervous_index_build(
     return nervous_index_write_latest(data) if write_latest else data
 
 
-def nervous_search_match_query(query: str) -> str:
-    return build_nervous_index_search_match_query(query)
-
-
-def nervous_duration_seconds(value: Any, default: float | None = None) -> float | None:
-    return build_nervous_index_parse_duration_seconds(value, default=default)
-
-
 def nervous_index_freshness(meta: dict[str, Any] | None = None, config: dict[str, Any] | None = None) -> dict[str, Any]:
     meta = meta if isinstance(meta, dict) else {}
     config = config if isinstance(config, dict) else nervous_index_config()
@@ -1850,18 +1635,6 @@ def nervous_index_freshness(meta: dict[str, Any] | None = None, config: dict[str
         line_counter=_core.count_file_lines,
         line_counts_reader=_core.count_file_lines_snapshot,
     )
-
-
-def nervous_search_sort_key(item: dict[str, Any], order: str) -> tuple[Any, ...]:
-    return build_nervous_index_search_sort_key(item, order)
-
-
-def nervous_search_dedupe_key(item: dict[str, Any]) -> tuple[str, str]:
-    return build_nervous_index_search_dedupe_key(item)
-
-
-def nervous_search_dedupe_results(rows: list[dict[str, Any]], limit: int, order: str, dedupe: bool) -> list[dict[str, Any]]:
-    return build_nervous_index_search_dedupe_results(rows, limit=limit, order=order, dedupe=dedupe)
 
 
 def nervous_index_search(
@@ -2041,10 +1814,6 @@ def nervous_semantic_config() -> dict[str, Any]:
     return semantic
 
 
-def nervous_semantic_schema_sql() -> str:
-    return build_nervous_semantic_schema_sql()
-
-
 def nervous_semantic_connect(create: bool = False) -> sqlite3.Connection:
     return nervous_semantic_adapters.connect_db(_core.NERVOUS_SEMANTIC_INDEX_DB_PATH, create=create)
 
@@ -2112,10 +1881,6 @@ def nervous_semantic_lock_active() -> bool:
     return nervous_semantic_adapters.semantic_lock_active(_core.NERVOUS_SEMANTIC_INDEX_ROOT)
 
 
-def nervous_semantic_age_minutes(value: Any) -> float | None:
-    return build_nervous_semantic_age_minutes(value)
-
-
 def nervous_semantic_maintain_assess(
     status: dict[str, Any],
     min_delta_chunks: int,
@@ -2127,28 +1892,6 @@ def nervous_semantic_maintain_assess(
         min_delta_chunks,
         max_stale_minutes,
         force_refresh=force_refresh,
-    )
-
-
-def nervous_semantic_maintain_index_refresh_assess(index_status: dict[str, Any], enabled: bool) -> dict[str, Any]:
-    return build_nervous_semantic_maintain_index_refresh_assess(index_status, enabled)
-
-
-def nervous_semantic_maintain_batch_policy(
-    semantic_status: dict[str, Any],
-    maintain: dict[str, Any],
-    explicit_batch_size: int | None,
-    resource_class: str,
-    unattended: bool,
-) -> dict[str, Any]:
-    memory = _core.memory_plan(write_latest=False)
-    return build_nervous_semantic_batch_policy(
-        semantic_status,
-        maintain,
-        explicit_batch_size,
-        resource_class,
-        unattended,
-        memory,
     )
 
 
@@ -2192,14 +1935,6 @@ def nervous_semantic_maintain(
         refresh_index_first=refresh_index_first,
         write_latest=write_latest,
     )
-
-
-def nervous_semantic_embedding_text(title: str, body: str, max_chars: int) -> str:
-    return build_nervous_semantic_embedding_text(title, body, max_chars)
-
-
-def nervous_semantic_body_preview(body: str, max_chars: int = 520) -> str:
-    return build_nervous_semantic_body_preview(body, max_chars=max_chars)
 
 
 def nervous_semantic_source_chunks(max_chunks: int | None = None) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
@@ -2248,46 +1983,6 @@ def nervous_semantic_embed_texts(text_items: list[dict[str, str]], embedding: di
         env=ai_cli.ai_subprocess_env(),
         resource_snapshot=_core.ai_resource_snapshot,
         resource_profile=_core.ai_resource_profile,
-    )
-
-
-def nervous_semantic_embedding_window_size(semantic: dict[str, Any]) -> int:
-    return build_nervous_semantic_embedding_window_size(semantic)
-
-
-def nervous_semantic_insert_vectors(
-    conn: sqlite3.Connection,
-    vectors: dict[str, dict[str, Any]],
-    pending_by_id: dict[str, dict[str, Any]],
-    started_at: str,
-) -> int:
-    return nervous_semantic_adapters.insert_vectors(conn, vectors, pending_by_id, started_at)
-
-
-def nervous_semantic_record_build_run(
-    conn: sqlite3.Connection,
-    *,
-    run_id: str,
-    started_at: str,
-    finished_at: str,
-    ok: bool,
-    source_chunks: int,
-    pending_chunks: int,
-    vectors_indexed: int,
-    partial: bool,
-    errors: dict[str, Any],
-) -> None:
-    nervous_semantic_adapters.record_build_run(
-        conn,
-        run_id=run_id,
-        started_at=started_at,
-        finished_at=finished_at,
-        ok=ok,
-        source_chunks=source_chunks,
-        pending_chunks=pending_chunks,
-        vectors_indexed=vectors_indexed,
-        partial=partial,
-        errors=errors,
     )
 
 
@@ -2467,22 +2162,6 @@ def nervous_semantic_build(
     return nervous_semantic_write_latest(data) if write_latest else data
 
 
-def nervous_semantic_vector_from_blob(blob: bytes) -> array.array:
-    return build_nervous_semantic_vector_from_blob(blob)
-
-
-def nervous_semantic_dot(left: array.array, right: array.array) -> float:
-    return build_nervous_semantic_dot(left, right)
-
-
-def nervous_semantic_search_sort_key(item: dict[str, Any]) -> tuple[float, float]:
-    return build_nervous_semantic_search_sort_key(item)
-
-
-def nervous_semantic_dedupe_results(rows: list[dict[str, Any]], limit: int, dedupe: bool) -> list[dict[str, Any]]:
-    return build_nervous_semantic_dedupe_results(rows, limit, dedupe=dedupe)
-
-
 def nervous_semantic_query_text(query: str) -> str:
     return build_nervous_semantic_query_text(query)
 
@@ -2605,59 +2284,8 @@ def nervous_latest_read(path: Path, read_schema: str) -> dict[str, Any]:
     )
 
 
-def nervous_record_time_value(record: dict[str, Any]) -> dt.datetime | None:
-    return build_nervous_record_time_value(record)
-
-
-def nervous_record_ids(records: list[dict[str, Any]], key: str) -> set[str]:
-    return build_nervous_record_ids(records, key)
-
-
-def nervous_synthesis_period_jsonl_path(root: Path, period: dict[str, Any]) -> Path:
-    return build_nervous_synthesis_period_jsonl_path(root, period)
-
-
 def nervous_replace_synthesis_period_record(path: Path, data: dict[str, Any], mode: int = 0o664) -> dict[str, Any] | None:
     return nervous_synthesis_adapters.replace_period_record(path, data, mode, group=_core.MODE_STATE_GROUP)
-
-
-def nervous_query_tokens(text: str) -> set[str]:
-    return {
-        token.lower()
-        for token in re.findall(r"[\wА-Яа-яЁё]{3,}", str(text or ""), flags=re.UNICODE)
-    }
-
-
-def nervous_result_text(item: dict[str, Any]) -> str:
-    return " ".join(
-        str(item.get(key) or "")
-        for key in ("title", "snippet", "body_preview")
-    )
-
-
-def nervous_result_recency_score(item: dict[str, Any]) -> float:
-    parsed = _core.parse_time(item.get("chunk_generated_at") or item.get("generated_at") or item.get("document_generated_at"))
-    if not parsed:
-        return 0.0
-    age_hours = max(0.0, (dt.datetime.now(dt.timezone.utc).astimezone() - parsed.astimezone()).total_seconds() / 3600.0)
-    if age_hours <= 6:
-        return 1.0
-    if age_hours <= 24:
-        return 0.75
-    if age_hours <= 24 * 7:
-        return 0.45
-    return 0.2
-
-
-def nervous_result_severity_score(item: dict[str, Any]) -> float:
-    severity = str(item.get("severity") or "").lower()
-    return {
-        "critical": 1.0,
-        "warning": 0.75,
-        "watch": 0.55,
-        "notice": 0.35,
-        "info": 0.2,
-    }.get(severity, 0.1)
 
 
 def nervous_rerank_default_profile() -> dict[str, Any]:
@@ -2677,10 +2305,6 @@ def nervous_neural_rerank_config(config: dict[str, Any] | None = None) -> dict[s
         default_cache_dir=str(_core.AI_OPENVINO_CACHE_ROOT / "qwen3-reranker-0.6b-int8-ov"),
         default_scorer="/srv/abyss-machine/tools/ai/rerankers/qwen3_reranker_openvino_canary.py",
     )
-
-
-def nervous_neural_rerank_text(item: dict[str, Any]) -> str:
-    return nervous_rerank_contracts.neural_text(item)
 
 
 def nervous_neural_rerank_scores(query: str, items: list[dict[str, Any]], config: dict[str, Any], force_policy: bool = False) -> dict[str, Any]:
@@ -2736,34 +2360,9 @@ def nervous_apply_neural_rerank_scores(
     return ranked, neural, warnings
 
 
-def nervous_rerank_machine_query_cap_detail(
-    query_tokens: set[str],
-    source_id: str,
-    source_detail: dict[str, Any],
-    final_score: float,
-    profile: dict[str, Any],
-) -> dict[str, Any]:
-    return nervous_rerank_contracts.machine_query_cap_detail(
-        query_tokens,
-        source_id,
-        source_detail,
-        final_score,
-        profile,
-    )
-
-
-def nervous_result_source_score_detail(item: dict[str, Any], query_tokens: set[str], profile: dict[str, Any] | None = None) -> dict[str, Any]:
-    profile = profile if isinstance(profile, dict) else nervous_rerank_default_profile()
-    return nervous_rerank_contracts.result_source_score_detail(item, query_tokens, profile)
-
-
 def nervous_result_source_score(item: dict[str, Any], query_tokens: set[str], profile: dict[str, Any] | None = None) -> float:
     profile = profile if isinstance(profile, dict) else nervous_rerank_default_profile()
     return nervous_rerank_contracts.result_source_score(item, query_tokens, profile)
-
-
-def nervous_rerank_merge_item(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
-    return nervous_rerank_contracts.merge_item(existing, incoming, timestamp_parser=_core.parse_time)
 
 
 def nervous_rerank_search(
@@ -2870,10 +2469,6 @@ def nervous_recall_pack(
     )
 
 
-def nervous_recall_latest() -> dict[str, Any]:
-    return nervous_latest_read(_core.NERVOUS_RETRIEVAL_LATEST_PATH, f"{_core.SCHEMA_PREFIX}_nervous_retrieval_latest_read_v1")
-
-
 def nervous_recent_episodes(limit: int = 8, scope: str = "now") -> dict[str, Any]:
     items, parse_errors = nervous_episode_records()
     return nervous_brief_contracts.recent_episodes_document(items, parse_errors, limit=limit, scope=scope)
@@ -2952,24 +2547,6 @@ def nervous_brief(scope: str = "now", limit: int = 8, refresh: bool = False, wri
     return data
 
 
-def nervous_episodes_for_period(scope: str, date_value: str | None = None, hour: int | None = None) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
-    items, parse_errors = nervous_episode_records()
-    episodes = [item["record"] for item in items if isinstance(item.get("record"), dict)]
-    return build_nervous_episodes_for_period(episodes, parse_errors, scope=scope, date_value=date_value, hour=hour)
-
-
-def nervous_events_for_episode_ids(episode_ids: list[str]) -> list[dict[str, Any]]:
-    episode_items, _episode_errors = nervous_episode_records()
-    event_items, _event_errors = nervous_event_records()
-    episode_records = [item["record"] for item in episode_items if isinstance(item.get("record"), dict)]
-    event_records = [item["record"] for item in event_items if isinstance(item.get("record"), dict)]
-    return build_nervous_events_for_episode_ids(episode_records, event_records, episode_ids)
-
-
-def nervous_synthesis_markdown(candidate: dict[str, Any]) -> str:
-    return build_nervous_synthesis_markdown(candidate)
-
-
 def nervous_synthesis_build(scope: str = "daily", date_value: str | None = None, hour: int | None = None, write_latest: bool = True) -> dict[str, Any]:
     scope = scope if scope in {"hourly", "daily"} else "daily"
     privacy = _core.nervous_effective_privacy(write_latest=False)
@@ -2996,14 +2573,6 @@ def nervous_synthesis_build(scope: str = "daily", date_value: str | None = None,
 
 def nervous_synthesis_latest() -> dict[str, Any]:
     return nervous_latest_read(_core.NERVOUS_SYNTHESIS_LATEST_PATH, f"{_core.SCHEMA_PREFIX}_nervous_synthesis_latest_read_v1")
-
-
-def nervous_synthesis_records() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    return nervous_synthesis_adapters.synthesis_records(
-        hourly_root=_core.NERVOUS_SYNTHESIS_HOURLY_ROOT,
-        daily_root=_core.NERVOUS_SYNTHESIS_DAILY_ROOT,
-        records_reader=nervous_records_from_jsonl_root,
-    )
 
 
 def nervous_synthesis_validate(write_latest: bool = True) -> dict[str, Any]:
@@ -3093,14 +2662,6 @@ def nervous_retention_paths_document(validate: bool = False) -> dict[str, Any]:
 
 def nervous_retention_route_specs() -> list[dict[str, Any]]:
     return nervous_retention_contracts.route_specs(_core.nervous_privacy(write_latest=False), nervous_retention_roots())
-
-
-def nervous_retention_file_candidates(now_time: dt.datetime | None = None, routes: list[dict[str, Any]] | None = None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    return nervous_retention_adapters.collect_file_candidates(
-        routes or nervous_retention_route_specs(),
-        now_time=now_time,
-        stop_at=_core.NERVOUS_ROOT,
-    )
 
 
 def nervous_retention_plan(write_latest: bool = True) -> dict[str, Any]:
@@ -3331,14 +2892,6 @@ def _nervous_forget_unlocked(minutes: float, dry_run: bool = False, reason: str 
         } if isinstance(index_rebuild, dict) else None,
         "audit": audit,
     }
-
-
-def nervous_token_entropy(token: str) -> float:
-    return _core.nervous_redaction.token_entropy(token)
-
-
-def nervous_high_entropy_token_candidates(text: str) -> list[dict[str, Any]]:
-    return _core.nervous_redaction.high_entropy_token_candidates(text)
 
 
 def typing_nervous_refresh_store(data: dict[str, Any], write_latest: bool = True) -> dict[str, Any]:
@@ -4317,10 +3870,6 @@ def nervous_resource_gate_complete(item: dict[str, Any]) -> bool:
         and bool(safe_next.get("review_command"))
         and bool(evidence_refs)
     )
-
-
-def nervous_retention_layer_summary(summary: dict[str, Any]) -> dict[str, Any]:
-    return nervous_retention_contracts.layer_summary(summary)
 
 
 def nervous_retention_privacy_route(retention_plan: dict[str, Any]) -> dict[str, Any]:

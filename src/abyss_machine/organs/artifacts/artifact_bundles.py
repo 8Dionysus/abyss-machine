@@ -1819,14 +1819,6 @@ def _source_ref_status(row: dict[str, Any], changed_source_ref: str) -> dict[str
     }
 
 
-def _artifact_source_ref_state(source_status: dict[str, Any]) -> str:
-    if source_status.get("required") is not True:
-        return "not_requested"
-    if source_status.get("matched") is True:
-        return "proved_current"
-    return "missing_current_proof"
-
-
 def verify_update_metadata(
     metadata: dict[str, Any],
     *,

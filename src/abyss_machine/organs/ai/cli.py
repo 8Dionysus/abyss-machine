@@ -903,10 +903,6 @@ def ai_tts_denied_result(command: str, profile: str, gate: dict[str, Any]) -> di
     return ai_tts_contracts.denied_result(ai_policy_denied_result(command, profile, [profile], gate), profile)
 
 
-def ai_tts_result_error(result: dict[str, Any]) -> str | None:
-    return ai_tts_contracts.result_error(result)
-
-
 def ai_tts_server_socket_path() -> Path:
     return ai_tts_adapters.server_socket_path(os.environ, os.getuid())
 
@@ -1368,20 +1364,6 @@ def ai_eval_text() -> dict[str, Any]:
     )
 
 
-def ai_eval_suites_for_request(suite: str, config: dict[str, Any] | None = None) -> list[str]:
-    config = config or ai_config()
-    eval_config = config.get("eval", {}) if isinstance(config.get("eval"), dict) else {}
-    return ai_runtime_contracts.eval_suites_for_request(suite, eval_config)
-
-
-def ai_eval_suite_declared_class(suite: str) -> str:
-    return ai_runtime_contracts.eval_suite_declared_class(suite)
-
-
-def ai_highest_workload_class(classes: list[str]) -> str:
-    return ai_runtime_contracts.highest_workload_class(classes, AI_WORKLOAD_CLASS_LEVELS)
-
-
 def ai_policy_gate_for_class(declared_class: str, operation: str, force: bool = False) -> dict[str, Any]:
     return ai_runtime_adapters.policy_gate_binding(
         schema_prefix=_core.SCHEMA_PREFIX,
@@ -1441,10 +1423,6 @@ def ai_latest_eval() -> dict[str, Any]:
     return _core.load_latest_json(AI_EVAL_LATEST_PATH, f"{_core.SCHEMA_PREFIX}_ai_eval_latest_read_v1")
 
 
-def ai_workload_slug(value: Any) -> str:
-    return ai_runtime_contracts.workload_slug(value)
-
-
 def ai_workload_taxonomy(write_latest: bool = True) -> dict[str, Any]:
     return ai_runtime_adapters.workload_taxonomy(
         schema_prefix=_core.SCHEMA_PREFIX,
@@ -1454,43 +1432,6 @@ def ai_workload_taxonomy(write_latest: bool = True) -> dict[str, Any]:
         write_latest=write_latest,
         taxonomy_path=AI_WORKLOAD_TAXONOMY_PATH,
         write_json=_core.safe_atomic_write_json,
-    )
-
-
-def ai_workload_numeric(value: Any) -> float | None:
-    return ai_runtime_contracts.workload_numeric(value)
-
-
-def ai_workload_token_int(value: Any) -> int | None:
-    return ai_runtime_contracts.workload_token_int(value)
-
-
-def ai_workload_token_accounting(source: Any, *, duration_sec: float | None = None) -> tuple[dict[str, Any], dict[str, Any] | None]:
-    return ai_runtime_contracts.workload_token_accounting(source, duration_sec=duration_sec)
-
-
-def ai_workload_component_sum(metrics: dict[str, Any], keys: list[str]) -> float | None:
-    return ai_runtime_contracts.workload_component_sum(metrics, keys)
-
-
-def ai_workload_record_id(parts: list[Any]) -> str:
-    return ai_runtime_contracts.workload_record_id(parts)
-
-
-def ai_workload_duration_band(seconds: float | None, config: dict[str, Any] | None = None) -> str | None:
-    return ai_runtime_contracts.workload_duration_band(seconds, config or ai_config())
-
-
-def ai_workload_base_record(source: dict[str, Any], workload_id: str, workload_class: str, capability: str, operation: str) -> dict[str, Any]:
-    return ai_runtime_contracts.workload_base_record(
-        schema_prefix=_core.SCHEMA_PREFIX,
-        version=_core.VERSION,
-        recorded_at=_core.now_iso(),
-        source=source,
-        workload_id=workload_id,
-        workload_class=workload_class,
-        capability=capability,
-        operation=operation,
     )
 
 
@@ -1538,10 +1479,6 @@ def ai_workload_measurements_from_tts_eval(data: dict[str, Any]) -> list[dict[st
         class_levels=AI_WORKLOAD_CLASS_LEVELS,
         config=ai_config(),
     )
-
-
-def ai_workload_measurement_files() -> list[Path]:
-    return ai_runtime_adapters.workload_measurement_files(AI_WORKLOAD_RUNS_ROOT)
 
 
 def ai_workload_read_measurements() -> list[dict[str, Any]]:
@@ -1598,10 +1535,6 @@ def ai_workload_refresh(write_latest: bool = True, run_probe: bool | None = None
     )
 
 
-def ai_workload_metric_stats(values: list[float]) -> dict[str, Any]:
-    return ai_runtime_contracts.workload_metric_stats(values)
-
-
 def ai_workload_stats(write_latest: bool = True) -> dict[str, Any]:
     return ai_runtime_adapters.workload_stats(
         config=ai_config(),
@@ -1615,10 +1548,6 @@ def ai_workload_stats(write_latest: bool = True) -> dict[str, Any]:
         write_json=_core.safe_atomic_write_json,
         records=ai_workload_read_measurements(),
     )
-
-
-def ai_workload_route_level(policy: dict[str, Any]) -> tuple[int, str]:
-    return ai_runtime_contracts.policy_workload_route_level(policy)
 
 
 def ai_workload_status(write_latest: bool = True, refresh_from_latest: bool = True) -> dict[str, Any]:
@@ -1920,26 +1849,6 @@ def ai_token_accounting_latest() -> dict[str, Any]:
     )
 
 
-def ai_token_accounting_int(value: Any) -> int | None:
-    return ai_runtime_contracts.token_accounting_int(value)
-
-
-def ai_token_accounting_sanitize_summary(summary: Any) -> dict[str, Any]:
-    return ai_runtime_contracts.token_accounting_sanitize_summary(summary)
-
-
-def ai_token_accounting_summary_has_counts(summary: dict[str, Any]) -> bool:
-    return ai_runtime_contracts.token_accounting_summary_has_counts(summary)
-
-
-def ai_token_accounting_context_pressure(summary: dict[str, Any]) -> dict[str, Any]:
-    return ai_runtime_contracts.token_accounting_context_pressure(summary)
-
-
-def ai_token_accounting_merge_summaries(summaries: list[dict[str, Any]], scope: dict[str, Any]) -> dict[str, Any]:
-    return ai_runtime_contracts.token_accounting_merge_summaries(summaries, scope)
-
-
 def ai_token_accounting_aoa_summary(
     *,
     aoa_root: Path = _core.DEFAULT_AOA_SESSION_MEMORY_ROOT,
@@ -2083,10 +1992,6 @@ def ai_token_accounting_self_test() -> dict[str, Any]:
             "persists_prompt_text": False,
         },
     }
-
-
-def ai_token_accounting_parse_count(stdout: str) -> int | None:
-    return ai_runtime_contracts.token_accounting_parse_count(stdout)
 
 
 def ai_token_accounting_count_text(

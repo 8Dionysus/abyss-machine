@@ -1153,16 +1153,6 @@ def sync_mode_power_profile_cache(cache: dict[str, Any]) -> None:
     POWER_PROFILE_CACHE_VALUE = str(value) if value is not None else None
 
 
-def default_mode_state() -> dict[str, Any]:
-    return mode_adapters.default_state(
-        state_file=MODE_STATE_FILE,
-        schema_prefix=SCHEMA_PREFIX,
-        version=VERSION,
-        generated_at=now_iso(),
-        current_profile=power_profile(),
-    )
-
-
 def load_mode_state() -> dict[str, Any]:
     return mode_adapters.load_state(
         MODE_STATE_FILE,
@@ -2247,22 +2237,8 @@ def ai_cpu_thermal_map(write_latest: bool = True) -> dict[str, Any]:
     return data
 
 
-def ai_cpu_thread_limit(workload_class: str, selected_cpus: list[int]) -> int:
-    return ai_cpu_routing.thread_limit(ai_cli.ai_config(), workload_class, selected_cpus)
-
-
 def ai_cpu_env_for_threads(thread_limit: int) -> dict[str, str]:
     return ai_cpu_routing.env_for_threads(thread_limit)
-
-
-def ai_cpu_select_route_cpus(workload_class: str, latency: str, thermal_map: dict[str, Any], force: bool = False) -> tuple[list[int], str]:
-    return ai_cpu_routing.select_route_cpus(
-        workload_class,
-        latency,
-        thermal_map,
-        config=ai_cli.ai_config(),
-        force=force,
-    )
 
 
 def int_config_value(config: dict[str, Any], key: str, default: int, minimum: int = 0) -> int:
@@ -2294,10 +2270,6 @@ def ai_cpu_routed_heavy_policy(
 
 def ai_cpu_thermal_unattended_cap(thermal_class: str) -> str:
     return ai_cpu_routing.thermal_unattended_cap(mode_policy_document(), thermal_class)
-
-
-def ai_cpu_thermal_allows_unattended(workload_class: str, thermal_class: str) -> tuple[bool, str]:
-    return ai_cpu_routing.thermal_allows_unattended(workload_class, thermal_class, mode_policy_document())
 
 
 def ai_cpu_route(
@@ -2462,10 +2434,6 @@ def write_text_result(path: Path, value: str) -> dict[str, Any]:
         return {"ok": False, "path": str(path), "value": value.strip(), "error": str(exc)}
 
 
-def cooling_default_config() -> dict[str, Any]:
-    return cooling_contracts.default_config(SCHEMA_PREFIX, VERSION)
-
-
 def cooling_config() -> dict[str, Any]:
     loaded, error = load_json_document(COOLING_CONFIG_PATH)
     return cooling_contracts.config_document(
@@ -2474,10 +2442,6 @@ def cooling_config() -> dict[str, Any]:
         loaded=loaded,
         load_error=error,
     )
-
-
-def cooling_find_lenovo_vpc() -> Path | None:
-    return cooling_adapters.find_lenovo_vpc()
 
 
 def cooling_platform_profile_status() -> dict[str, Any]:
@@ -2490,14 +2454,6 @@ def cooling_lenovo_fan_status() -> dict[str, Any]:
 
 def cooling_thermal_zones() -> list[dict[str, Any]]:
     return cooling_adapters.thermal_zones()
-
-
-def cooling_device_acpi_metadata(device: Path) -> dict[str, Any]:
-    return cooling_adapters.device_acpi_metadata(device)
-
-
-def cooling_acpi_fan_performance_states(acpi_device: str | None) -> list[dict[str, Any]]:
-    return cooling_adapters.acpi_fan_performance_states(acpi_device)
 
 
 def cooling_devices() -> list[dict[str, Any]]:
@@ -2515,20 +2471,6 @@ def cooling_temperature_summary() -> dict[str, Any]:
         thermal_zones_port=cooling_thermal_zones,
         classify_temperature=classify_temperature,
     )
-
-
-def cooling_cpu_hotspot_summary(hwmon: dict[str, Any], warm: float, hot: float, critical: float) -> dict[str, Any]:
-    return cooling_adapters.cpu_hotspot_summary(
-        hwmon,
-        warm,
-        hot,
-        critical,
-        classify_temperature=classify_temperature,
-    )
-
-
-def cooling_trusted_sensor_map(hwmon: dict[str, Any], zones: list[dict[str, Any]]) -> dict[str, Any]:
-    return cooling_adapters.trusted_sensor_map(hwmon, zones)
 
 
 def cooling_temperature_sample() -> dict[str, Any]:
@@ -2549,16 +2491,8 @@ def cooling_sample_series(seconds: float, interval: float) -> list[dict[str, Any
     )
 
 
-def cooling_series_metric(samples: list[dict[str, Any]], key: str) -> dict[str, Any]:
-    return cooling_adapters.series_metric(samples, key)
-
-
 def cooling_series_summary(samples: list[dict[str, Any]]) -> dict[str, Any]:
     return cooling_adapters.series_summary(samples)
-
-
-def cooling_kernel_fan_errors(since: str) -> dict[str, Any]:
-    return cooling_adapters.kernel_fan_errors(since)
 
 
 def cooling_thermal_audit(seconds: float = 10.0, interval: float = 2.0, write_latest: bool = True) -> dict[str, Any]:
@@ -2708,10 +2642,6 @@ def cooling_paths() -> dict[str, Any]:
 
 def cooling_rapl_smoothing_config() -> dict[str, Any]:
     return cooling_contracts.rapl_smoothing_config(cooling_config())
-
-
-def cooling_rapl_mmio_path() -> Path | None:
-    return cooling_adapters.rapl_mmio_path()
 
 
 def cooling_rapl_mmio_status() -> dict[str, Any]:
@@ -2902,10 +2832,6 @@ def cooling_status(write_latest: bool = True) -> dict[str, Any]:
     return data
 
 
-def cooling_mode_from_power_profile_name(profile: str | None) -> str:
-    return cooling_contracts.mode_from_power_profile_name(profile)
-
-
 def cooling_recent_emergency(seconds: float, origin_min_temperature_c: float = 86.0) -> dict[str, Any]:
     data: dict[str, Any] = {
         "active": False,
@@ -3062,10 +2988,6 @@ def cooling_tfn1_write(level: int = 50, seconds: float = 5.0, write_latest: bool
         if daily_error:
             data["write_errors"] = [daily_error]
     return data
-
-
-def cooling_parse_levels(raw: str | list[int] | tuple[int, ...] | None) -> list[int]:
-    return cooling_contracts.parse_levels(raw)
 
 
 def cooling_fan_validate(
@@ -3298,10 +3220,6 @@ def memory_parse_pressure_file(path: Path) -> dict[str, Any]:
     return memory_adapters.parse_pressure_file(path)
 
 
-def memory_parse_key_value_file(path: Path) -> dict[str, int]:
-    return memory_adapters.parse_key_value_file(path)
-
-
 def memory_vmstat_snapshot() -> dict[str, Any]:
     return memory_adapters.vmstat_snapshot()
 
@@ -3334,18 +3252,6 @@ def memory_process_rollup(pid: int) -> dict[str, Any]:
     return memory_adapters.process_rollup(pid)
 
 
-def memory_proc_cgroup_path(cgroup_lines: Any) -> str | None:
-    return memory_adapters.proc_cgroup_path(cgroup_lines)
-
-
-def memory_cgroup_unit_hint(cgroup_path: str | None) -> str | None:
-    return memory_adapters.cgroup_unit_hint(cgroup_path)
-
-
-def memory_cgroup_primary_bucket(items: list[dict[str, Any]]) -> tuple[str, str, bool, str]:
-    return memory_adapters.cgroup_primary_bucket(items, protected_roles=PROTECTED_CAPABILITY_ROLES)
-
-
 def memory_podman_container_index(timeout_sec: float | None = None) -> dict[str, Any]:
     return memory_adapters.podman_container_index(
         command_exists=command_exists,
@@ -3364,28 +3270,6 @@ def memory_podman_index_disabled(reason: str = "disabled_by_request") -> dict[st
         "error": reason,
         "timeout_sec": 0.0,
     }
-
-
-def memory_podman_container_for_pids(pids: list[int], podman_index: dict[str, Any] | None) -> dict[str, Any] | None:
-    return memory_adapters.podman_container_for_pids(pids, podman_index)
-
-
-def memory_cgroup_swap_snapshot(processes: list[dict[str, Any]], top: int = 40, podman_index: dict[str, Any] | None = None) -> dict[str, Any]:
-    return memory_adapters.cgroup_swap_snapshot(
-        processes,
-        top=top,
-        podman_index=podman_index,
-        protected_roles=PROTECTED_CAPABILITY_ROLES,
-    )
-
-
-def memory_cgroup_memory_snapshot(processes: list[dict[str, Any]], top: int = 40, podman_index: dict[str, Any] | None = None) -> dict[str, Any]:
-    return memory_adapters.cgroup_memory_snapshot(
-        processes,
-        top=top,
-        podman_index=podman_index,
-        protected_roles=PROTECTED_CAPABILITY_ROLES,
-    )
 
 
 def memory_process_snapshot(
@@ -3427,25 +3311,12 @@ def memory_process_snapshot(
     return data
 
 
-def memory_parse_byte_control(value: Any) -> int | None:
-    return memory_adapters.control_value(value).get("bytes")
-
-
 def memory_control_value(raw: Any) -> dict[str, Any]:
     return memory_adapters.control_value(raw)
 
 
 def memory_cgroup_file_snapshot(control_group: str | None) -> dict[str, Any]:
     return memory_adapters.cgroup_file_snapshot(control_group, memory_control_value=memory_control_value)
-
-
-def memory_residency_service_rollup(pids: list[int], max_pids: int = 16) -> dict[str, Any]:
-    return memory_adapters.residency_service_rollup(
-        pids,
-        max_pids=max_pids,
-        process_info=process_info,
-        process_rollup_port=memory_process_rollup,
-    )
 
 
 def memory_residency_services(policy: dict[str, Any]) -> list[dict[str, Any]]:
@@ -3876,10 +3747,6 @@ def memory_residency(top: int = 40, write_latest: bool = False) -> dict[str, Any
     return data
 
 
-def memory_hotpath_residency_brief(data: dict[str, Any]) -> dict[str, Any]:
-    return memory_adapters.hotpath_residency_brief(data)
-
-
 def memory_hotpath_tts_probe(
     text: str,
     index: int,
@@ -3975,10 +3842,6 @@ def memory_class_rank(name: str | None) -> int:
 
 def memory_class_name(rank: int) -> str:
     return memory_contracts.class_name(rank)
-
-
-def memory_promote(current: int, target: str, reason: str, reasons: list[str]) -> int:
-    return memory_contracts.promote(current, target, reason, reasons)
 
 
 def memory_swap_is_zram_only(swap: dict[str, Any]) -> bool:
@@ -4648,10 +4511,6 @@ def normalize_eval_text(text: str) -> str:
 
 def text_similarity(reference: str, hypothesis: str) -> float:
     return ai_runtime_contracts.stt_eval_text_similarity(reference, hypothesis)
-
-
-def ai_workload_resource_metrics(profile: Any) -> dict[str, Any]:
-    return ai_runtime_contracts.workload_resource_metrics(profile)
 
 
 def token_accounting_privacy_flags() -> dict[str, bool]:
@@ -5829,10 +5688,6 @@ def storage_inventory_latest_or_refresh(
 
 def storage_policy_thresholds() -> dict[str, float]:
     return storage_contracts.policy_thresholds(storage_policy_document())
-
-
-def storage_pressure_class(used_percent: Any, warning: float, critical: float, watch_margin: float) -> str:
-    return storage_contracts.pressure_class(used_percent, warning, critical, watch_margin)
 
 
 def storage_pressure_class_from_usage(
@@ -9534,10 +9389,6 @@ STACK_SERVICE_ROLES = process_contracts.STACK_SERVICE_ROLES
 PROTECTED_CAPABILITY_ROLES = process_contracts.PROTECTED_CAPABILITY_ROLES
 
 
-def process_capability_role(cmdline: str, comm: str, cwd: str | None = None, exe: str | None = None) -> str:
-    return process_contracts.capability_role(cmdline, comm, cwd, exe)
-
-
 def path_text_under_game_root(value: Any) -> bool:
     return process_contracts.path_text_under_game_root(value, GAME_PROTECTED_ROOTS)
 
@@ -9548,10 +9399,6 @@ def text_matches_any(patterns: list[str], text: str) -> bool:
 
 def process_has_strong_game_signal(text: str) -> bool:
     return process_contracts.has_strong_game_signal(text)
-
-
-def process_has_wine_runtime_signal(text: str) -> bool:
-    return process_contracts.has_wine_runtime_signal(text)
 
 
 def process_game_role(cmdline: str, comm: str, cwd: str | None = None, exe: str | None = None) -> str:
@@ -9819,10 +9666,6 @@ def gamemode_status() -> dict[str, Any]:
     }
 
 
-def process_game_summary_entry(proc: dict[str, Any]) -> dict[str, Any]:
-    return process_contracts.game_summary_entry(proc, game_roots=GAME_PROTECTED_ROOTS)
-
-
 def process_game_entries(processes: list[dict[str, Any]], top: int = 60) -> dict[str, list[dict[str, Any]]]:
     return process_contracts.game_entries(processes, top=top, game_roots=GAME_PROTECTED_ROOTS)
 
@@ -9981,25 +9824,6 @@ def process_vitals_extension_state() -> dict[str, Any]:
     return process_adapters.process_vitals_extension_state(command_exists=command_exists, runner=run)
 
 
-def _desktop_compact_text(value: Any, limit: int = 180) -> str:
-    try:
-        text = "" if value is None else str(value)
-    except Exception:
-        return "<unreadable>"
-    text = " ".join(text.split())
-    if len(text) > limit:
-        return text[: limit - 3] + "..."
-    return text
-
-
-def _gsettings_string_array_values(raw: str) -> list[str]:
-    return process_adapters.gsettings_string_array_values(raw)
-
-
-def _gnome_extension_path(uuid: str) -> Path | None:
-    return process_adapters.gnome_extension_path(uuid)
-
-
 def process_gnome_shell_extensions_state() -> dict[str, Any]:
     return process_adapters.process_gnome_shell_extensions_state(command_exists=command_exists, runner=run)
 
@@ -10027,10 +9851,6 @@ def process_atspi_window_snapshot_bounded(timeout_sec: float = 1.5) -> dict[str,
 
 def process_x11_window_snapshot() -> dict[str, Any]:
     return process_adapters.process_x11_window_snapshot(command_exists=command_exists, runner=run)
-
-
-def _parse_ss_users(text: str) -> list[dict[str, Any]]:
-    return process_adapters.parse_ss_users(text)
 
 
 def process_wayland_client_snapshot() -> dict[str, Any]:
@@ -10570,22 +10390,6 @@ def resource_systemd_capabilities() -> dict[str, Any]:
 
 def resource_scope_for_kind(policy: dict[str, Any], kind: str) -> str:
     return resource_planning.scope_for_kind(policy, kind)
-
-
-def resource_systemd_plan(policy: dict[str, Any], kind: str, workload_class: str, route: dict[str, Any], unit_type: str) -> dict[str, Any]:
-    return resource_planning.systemd_plan(
-        policy,
-        kind,
-        workload_class,
-        route,
-        unit_type,
-        total_mem_kib=meminfo().get("MemTotal"),
-        environ=os.environ,
-    )
-
-
-def resource_storage_gate(storage_data: dict[str, Any], write_preflight: dict[str, Any] | None) -> tuple[list[str], list[str], list[str]]:
-    return resource_planning.storage_gate(storage_data, write_preflight)
 
 
 def resource_game_guard_block_reasons(
@@ -11385,16 +11189,8 @@ def resource_parse_systemd_run_output(text: str) -> dict[str, Any]:
     return resource_planning.parse_systemd_run_output(text)
 
 
-def resource_sanitize_unit_part(value: str, fallback: str) -> str:
-    return resource_planning.sanitize_unit_part(value, fallback)
-
-
 def resource_generated_unit_name(kind: str, workload_class: str, unit_type: str) -> str:
     return resource_planning.generated_unit_name(kind, workload_class, unit_type)
-
-
-def resource_systemd_unit_cleanup(unit: str | None) -> dict[str, Any]:
-    return resource_adapters.systemd_user_unit_cleanup(unit)
 
 
 def resource_launch_exec_handoff(
@@ -13632,14 +13428,6 @@ def nervous_source_enabled(sources: dict[str, Any], name: str) -> bool:
     return False
 
 
-def nervous_source_group_item(sources: dict[str, Any], name: str) -> tuple[str | None, dict[str, Any] | None]:
-    for group_name in ("safe_now", "deferred_until_privacy_controls"):
-        group = sources.get(group_name)
-        if isinstance(group, dict) and isinstance(group.get(name), dict):
-            return group_name, group.get(name)
-    return None, None
-
-
 def nervous_file_source(path: Path, max_hash_bytes: int = 8 * 1024 * 1024) -> dict[str, Any]:
     return nervous_source_contracts.file_source(path, read_at=now_iso(), max_hash_bytes=max_hash_bytes)
 
@@ -13674,19 +13462,6 @@ def nervous_url_payload(url: str) -> dict[str, Any]:
     )
 
 
-def nervous_browser_content_jsonl_path(value: Any | None = None) -> Path:
-    return nervous_browser_content_adapters.browser_content_jsonl_path(
-        NERVOUS_BROWSER_CONTENT_ROOT,
-        value,
-        parse_time=parse_time,
-        now=lambda: dt.datetime.now(dt.timezone.utc).astimezone(),
-    )
-
-
-def nervous_browser_content_dedupe_key(record: dict[str, Any]) -> str:
-    return nervous_browser_content_adapters.browser_content_dedupe_key(record)
-
-
 def read_recent_jsonl_lines(path: Path, max_lines: int = 240, max_bytes: int = 2 * 1024 * 1024) -> list[str]:
     if not path.exists():
         return []
@@ -13702,10 +13477,6 @@ def read_recent_jsonl_lines(path: Path, max_lines: int = 240, max_bytes: int = 2
     if start > 0:
         payload = payload.split(b"\n", 1)[-1]
     return payload.decode("utf-8", errors="replace").splitlines()[-max_lines:]
-
-
-def nervous_browser_content_recent_duplicate(path: Path, record: dict[str, Any], max_lines: int = 240) -> dict[str, Any] | None:
-    return nervous_browser_content_adapters.browser_content_recent_duplicate(path, record, max_lines=max_lines)
 
 
 def nervous_browser_sensitive_reasons(
@@ -13760,28 +13531,7 @@ def nervous_browser_content_store(page: dict[str, Any], capture_source: str, con
     )
 
 
-def nervous_browser_text_clean(value: str) -> str:
-    return nervous_source_contracts.browser_text_clean(value)
-
-
-def nervous_browser_line_is_noise(line: str) -> tuple[bool, str | None]:
-    return nervous_source_contracts.browser_line_is_noise(line)
-
-
-def nervous_browser_content_quality(text: str, title: str = "", url: str = "") -> dict[str, Any]:
-    return nervous_source_contracts.browser_content_quality(
-        text,
-        title=title,
-        url=url,
-        schema_prefix=SCHEMA_PREFIX,
-    )
-
-
 WEB_CONTEXT_CLASSES = nervous_source_contracts.WEB_CONTEXT_CLASSES
-
-
-def nervous_browser_attention_priority(atspi: dict[str, Any], visibility_state: str | None = None) -> dict[str, Any]:
-    return nervous_source_contracts.browser_attention_priority(atspi, visibility_state=visibility_state)
 
 
 def nervous_browser_web_context_quality(
@@ -13915,26 +13665,6 @@ def nervous_browser_live_content_capture(write_latest: bool = True) -> dict[str,
 
 
 NERVOUS_BROWSER_CAPTURE_SCRIPT = nervous_browser_content_adapters.BROWSER_CONTENT_CAPTURE_SCRIPT
-
-
-def nervous_ws_url_parts(url: str) -> tuple[str, int, str]:
-    return nervous_browser_content_adapters.websocket_url_parts(url)
-
-
-def nervous_ws_read_exact(sock: socket.socket, size: int) -> bytes:
-    return nervous_browser_content_adapters.websocket_read_exact(sock, size)
-
-
-def nervous_ws_send_frame(sock: socket.socket, opcode: int, payload: bytes) -> None:
-    nervous_browser_content_adapters.websocket_send_frame(sock, opcode, payload)
-
-
-def nervous_ws_send_json(sock: socket.socket, payload: dict[str, Any]) -> None:
-    nervous_browser_content_adapters.websocket_send_json(sock, payload)
-
-
-def nervous_ws_recv_json(sock: socket.socket) -> dict[str, Any]:
-    return nervous_browser_content_adapters.websocket_recv_json(sock)
 
 
 def nervous_ws_connect(url: str, timeout: float = 1.5) -> socket.socket:
@@ -14474,18 +14204,6 @@ def nervous_gnome_shell_screenshot_allowlisted_bus(path: Path, timeout: float = 
     return nervous_screenshot_adapters.gnome_shell_screenshot_allowlisted_bus(path, timeout)
 
 
-def nervous_x11_window_details(window_id: str, prop_text: str) -> dict[str, Any]:
-    return nervous_screenshot_adapters.x11_window_details(
-        window_id,
-        prop_text,
-        process_info=process_info,
-        game_role=process_game_role,
-        workload_hint=process_workload_hint,
-        text_haystack=process_text_haystack,
-        strong_game_signal=process_has_strong_game_signal,
-    )
-
-
 def nervous_x11_active_window_info(timeout: float = 1.2) -> dict[str, Any]:
     return nervous_screenshot_adapters.x11_active_window_info(
         environ=os.environ,
@@ -14876,41 +14594,8 @@ def nervous_jsonl_files(root: Path) -> list[Path]:
     return typing_nervous_adapters.jsonl_files(root)
 
 
-def nervous_write_jsonl_records(path: Path, records: list[dict[str, Any]]) -> str | None:
-    return nervous_events_adapters.write_jsonl_records(path, records, group=MODE_STATE_GROUP)
-
-
-def nervous_write_derived_records(root: Path, records: list[dict[str, Any]], derived_by: str) -> dict[str, Any]:
-    return nervous_events_adapters.write_derived_records(root, records, derived_by)
-
-
-def nervous_systemd_facts_from_snapshot(record: dict[str, Any]) -> list[dict[str, Any]]:
-    return nervous_events_contracts.systemd_facts_from_snapshot(record)
-
-
-def nervous_snapshot_evidence(item: dict[str, Any], record: dict[str, Any]) -> dict[str, Any]:
-    return nervous_events_contracts.snapshot_evidence(item, record)
-
-
-def nervous_private_capture_events(item: dict[str, Any], record: dict[str, Any]) -> list[dict[str, Any]]:
-    return nervous_events_contracts.private_capture_events(
-        item,
-        record,
-        fact_source_id=nervous_fact_source_id,
-        deferred_source_ids=nervous_deferred_source_ids(),
-        compact_json_func=nervous_cli.nervous_compact_json_for_index,
-        schema_prefix=SCHEMA_PREFIX,
-        version=VERSION,
-        generated_at=now_iso(),
-    )
-
-
 def nervous_path_has_symlink_tail(path: Path, stop_at: Path | None = None) -> bool:
     return nervous_index_adapters.path_has_symlink_tail(path, stop_at=stop_at)
-
-
-def nervous_enabled_safe_source_ids(sources: dict[str, Any]) -> set[str]:
-    return nervous_cli.build_nervous_index_enabled_safe_source_ids(sources)
 
 
 def nervous_deferred_source_ids(sources: dict[str, Any] | None = None) -> set[str]:
@@ -14938,10 +14623,6 @@ def nervous_write_json_latest_and_daily(latest_path: Path, daily_root: Path, dat
 
 def nervous_write_text_atomic(path: Path, text: str, mode: int = 0o664) -> dict[str, Any] | None:
     return nervous_synthesis_adapters.write_text_atomic(path, text, mode, group=MODE_STATE_GROUP)
-
-
-def nervous_redaction_patterns() -> list[dict[str, Any]]:
-    return nervous_redaction.redaction_patterns()
 
 
 def nervous_redact_text(text: str) -> dict[str, Any]:
@@ -15902,14 +15583,6 @@ def typing_docs_read_errors() -> list[dict[str, Any]]:
     return errors
 
 
-def typing_zsh_hook_expected_markers() -> list[str]:
-    return typing_shell_adapters.zsh_hook_expected_markers()
-
-
-def typing_zshrc_sources_hook(text: str) -> bool:
-    return typing_shell_adapters.zshrc_sources_hook(text)
-
-
 def typing_zsh_hook_function_probe() -> dict[str, Any]:
     plan = typing_shell_adapters.zsh_hook_function_probe_plan(
         hook_path=TYPING_ZSH_HOOK_PATH,
@@ -16547,14 +16220,6 @@ def typing_coverage_route_notes_and_gaps(
     )
 
 
-def typing_codex_prompt_text_from_event(event: dict[str, Any]) -> str:
-    return typing_codex_semantics.prompt_text_from_event(event)
-
-
-def typing_codex_prompt_hook_metadata(event: dict[str, Any]) -> dict[str, Any]:
-    return typing_codex_semantics.prompt_hook_metadata(event)
-
-
 def typing_codex_prompt_hook_ingest_event(event: dict[str, Any], write_latest: bool = True) -> dict[str, Any]:
     plan = typing_codex_semantics.prompt_hook_ingest_plan(event)
     prompt = str(plan.get("prompt") or "")
@@ -16713,10 +16378,6 @@ def typing_codex_session_tail_files(limit: int = 4, state: dict[str, Any] | None
     )
 
 
-def typing_codex_message_text(payload: dict[str, Any]) -> str:
-    return typing_codex_semantics.message_text(payload)
-
-
 def typing_codex_user_message_normalize(raw_text: str) -> dict[str, Any]:
     return typing_codex_semantics.user_message_normalize(raw_text)
 
@@ -16725,26 +16386,6 @@ def typing_codex_session_tail_user_messages(record: dict[str, Any]) -> list[dict
     if not isinstance(record, dict):
         return []
     return typing_codex_semantics.session_tail_user_messages(record)
-
-
-def typing_codex_session_tail_candidate_lines(
-    path: Path,
-    since_line: int,
-    initial_tail_lines: int,
-    recovery_tail_lines: int,
-    recovery_scan: bool = False,
-) -> tuple[list[tuple[int, str]], int, list[dict[str, Any]], str]:
-    return typing_nervous_adapters.codex_session_tail_candidate_lines(
-        path,
-        since_line,
-        initial_tail_lines,
-        recovery_tail_lines,
-        recovery_scan=recovery_scan,
-    )
-
-
-def typing_codex_session_tail_incremental_lines(path: Path, since_line: int, since_byte: int) -> tuple[list[tuple[int, str]], int, int, list[dict[str, Any]]]:
-    return typing_nervous_adapters.codex_session_tail_incremental_lines(path, since_line, since_byte)
 
 
 def typing_codex_session_tail(
@@ -17205,36 +16846,6 @@ def typing_capture_gate_token_matches(kind: str, probe: str, tokens: list[Any]) 
     return typing_capture_contracts.capture_gate_token_matches(kind, probe, tokens)
 
 
-def typing_capture_gate_paths(context: str | None, metadata: dict[str, Any] | None, paths: list[str] | None = None) -> list[str]:
-    return typing_capture_contracts.capture_gate_paths(context, metadata, paths)
-
-
-def typing_capture_gate_path_allowed(path: str, roots: list[Any]) -> bool:
-    return typing_capture_contracts.capture_gate_path_allowed(path, roots)
-
-
-def typing_capture_gate_context_flag(probe: str, key: str) -> bool:
-    return typing_capture_contracts.capture_gate_context_flag(probe, key)
-
-
-def typing_capture_gate_context_field(probe: str, key: str) -> str:
-    return typing_capture_contracts.capture_gate_context_field(probe, key)
-
-
-def typing_capture_gate_atspi_shape(
-    source_id: str,
-    app_probe: str,
-    metadata_payload: dict[str, Any],
-    policy_data: dict[str, Any],
-) -> dict[str, Any]:
-    return typing_capture_contracts.capture_gate_atspi_shape(
-        source_id,
-        app_probe,
-        metadata_payload,
-        policy_data,
-    )
-
-
 def typing_browser_extension_policy(policy: dict[str, Any] | None = None) -> dict[str, Any]:
     policy_data = policy if isinstance(policy, dict) else typing_policy(write_latest=False)
     return typing_capture_contracts.browser_extension_policy(policy_data, default_typing_policy())
@@ -17339,10 +16950,6 @@ def typing_causal_extract_context_value(context_text: str, key: str) -> str | No
 def typing_causal_extract_shell_cwd(context_text: str) -> str | None:
     match = re.search(r"(?:^|\s)cwd=([^\s]+)", str(context_text or ""))
     return match.group(1) if match else None
-
-
-def typing_causal_extract_context_paths(context_text: str) -> list[str]:
-    return typing_capture_contracts.extract_context_paths(context_text)
 
 
 def typing_causal_surface_paths(
@@ -17869,28 +17476,8 @@ def typing_atspi_safe_string(value: Any, limit: int = 240) -> str:
     return typing_atspi_adapters.safe_string(value, limit)
 
 
-def typing_atspi_state_flags(obj: Any, pyatspi_module: Any) -> dict[str, bool]:
-    return typing_atspi_adapters.atspi_state_flags(obj, pyatspi_module)
-
-
 def typing_atspi_text_payload(obj: Any, max_chars: int) -> tuple[str, int, int | None, str | None]:
     return typing_atspi_adapters.atspi_text_payload(obj, max_chars)
-
-
-def typing_atspi_accessible_index_in_parent_py(obj: Any) -> int | None:
-    return typing_atspi_adapters.atspi_accessible_index_in_parent(obj)
-
-
-def typing_atspi_same_accessible_py(left: Any, right: Any) -> bool:
-    return typing_atspi_adapters.atspi_same_accessible(left, right)
-
-
-def typing_atspi_object_path_py(obj: Any, max_depth: int = 36) -> str | None:
-    return typing_atspi_adapters.atspi_object_path(obj, max_depth=max_depth)
-
-
-def typing_atspi_paths_match(source_path: str | None, document_path: str | None, capture_path: str | None) -> bool:
-    return typing_capture_contracts.atspi_paths_match(source_path, document_path, capture_path)
 
 
 def typing_browser_content_record_url(record: dict[str, Any]) -> str:
@@ -17979,14 +17566,6 @@ def typing_browser_context_inference_probe(policy: dict[str, Any] | None = None)
         "required": False,
         "captures": len(captures),
     }
-
-
-def typing_atspi_document_attributes_py(obj: Any) -> dict[str, str]:
-    return typing_atspi_adapters.atspi_document_attributes(obj)
-
-
-def typing_atspi_application_context(obj: Any) -> dict[str, Any]:
-    return typing_atspi_adapters.atspi_application_context(obj)
 
 
 def typing_atspi_focused_candidate(policy: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -18568,10 +18147,6 @@ def typing_safe_process_tail(text: Any, max_chars: int = 1000) -> str:
     return str(nervous_text_payload(redacted, max_chars=max_chars).get("text") or "")
 
 
-def typing_firefox_selftest_user_prefs() -> str:
-    return typing_browser_adapters.firefox_selftest_user_prefs()
-
-
 def typing_prepare_firefox_selftest_profile(profile_dir: Path) -> dict[str, Any] | None:
     return typing_browser_adapters.prepare_firefox_selftest_profile(profile_dir)
 
@@ -18998,24 +18573,8 @@ def typing_saved_text_policy(policy: dict[str, Any] | None = None) -> dict[str, 
     return typing_capture_contracts.saved_text_policy(policy_data, default_typing_policy())
 
 
-def typing_saved_text_path_denied(path: Path, saved_policy: dict[str, Any]) -> list[dict[str, Any]]:
-    return typing_capture_contracts.saved_text_path_denied(path, saved_policy)
-
-
 def typing_saved_text_path_excluded(path: Path, saved_policy: dict[str, Any]) -> list[dict[str, Any]]:
     return typing_capture_contracts.saved_text_path_excluded(path, saved_policy)
-
-
-def typing_saved_text_low_signal_artifact(path: Path, saved_policy: dict[str, Any]) -> list[dict[str, Any]]:
-    return typing_capture_contracts.saved_text_low_signal_artifact(path, saved_policy)
-
-
-def typing_saved_text_file_allowed(path: Path, saved_policy: dict[str, Any]) -> bool:
-    return typing_capture_contracts.saved_text_file_allowed(path, saved_policy)
-
-
-def typing_saved_text_decode(path: Path, max_bytes: int) -> tuple[str, int, str | None]:
-    return typing_saved_text_adapters.saved_text_decode(path, max_bytes)
 
 
 def typing_saved_text_scan_candidates(saved_policy: dict[str, Any], state: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -19115,14 +18674,6 @@ def typing_browser_extension_store(data: dict[str, Any], write_latest: bool = Tr
     )
 
 
-def typing_browser_extension_message_metadata(message: dict[str, Any]) -> dict[str, Any]:
-    return typing_browser_adapters.browser_extension_message_metadata(
-        message,
-        extension_id=TYPING_BROWSER_EXTENSION_ID,
-        native_host=TYPING_BROWSER_NATIVE_HOST_NAME,
-    )
-
-
 def typing_browser_extension_ingest_message(message: dict[str, Any], write_latest: bool = True) -> dict[str, Any]:
     generated_at = now_iso()
     plan = typing_browser_adapters.browser_extension_ingest_plan(
@@ -19175,15 +18726,6 @@ def typing_browser_ai_transcript_clean_text(text: str) -> dict[str, Any]:
 
 def typing_browser_ai_transcript_normalize_role(role: str, text: str, page_identity: dict[str, Any]) -> dict[str, Any]:
     return typing_capture_contracts.browser_ai_transcript_normalize_role(role, text, page_identity)
-
-
-def typing_browser_ai_transcript_message_metadata(message: dict[str, Any]) -> dict[str, Any]:
-    return typing_browser_adapters.browser_ai_transcript_message_metadata(
-        message,
-        extension_id=TYPING_BROWSER_EXTENSION_ID,
-        native_host=TYPING_BROWSER_NATIVE_HOST_NAME,
-        schema_prefix=SCHEMA_PREFIX,
-    )
 
 
 def typing_browser_ai_transcript_ingest_message(message: dict[str, Any], write_latest: bool = True) -> dict[str, Any]:
@@ -19490,12 +19032,6 @@ def typing_browser_extension_find_probe_event(text_sha256: str, limit: int = 320
     return None, errors
 
 
-def typing_browser_webextension_base_command() -> tuple[list[str], dict[str, Any]]:
-    return typing_browser_adapters.browser_webextension_base_command(
-        npm_cache=TYPING_BROWSER_WEBEXTENSION_NPM_CACHE,
-    )
-
-
 def typing_browser_webextension_selftest(write_latest: bool = True) -> dict[str, Any]:
     generated_at = now_iso()
     data = typing_browser_adapters.browser_webextension_selftest_document(
@@ -19683,19 +19219,6 @@ def typing_latest() -> dict[str, Any]:
 
 def typing_records(limit: int = 20) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     return typing_nervous_adapters.read_recent_jsonl_records(TYPING_EVENTS_ROOT, limit)
-
-
-def typing_records_for_source_adapter(
-    source_adapter: str,
-    limit: int = 80,
-    max_scan_records: int = 12000,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
-    return typing_nervous_adapters.read_recent_jsonl_records_for_source(
-        TYPING_EVENTS_ROOT,
-        source_adapter,
-        limit=limit,
-        max_scan_records=max_scan_records,
-    )
 
 
 def typing_records_for_source_adapters(
@@ -24101,14 +23624,6 @@ SELF_AWARENESS_WORKING_STACK_EXPECTED_LIVE_SERVICES = (
 )
 
 
-def self_awareness_stack_owned_source_ref(path: Path, kind: str, **extra: Any) -> dict[str, Any]:
-    return self_awareness_adapters.stack_owned_source_ref(path, kind, **extra)
-
-
-def self_awareness_normalize_stack_service_name(value: Any) -> str:
-    return self_awareness_adapters.normalize_stack_service_name(value)
-
-
 def self_awareness_working_stack_service_selection_policy() -> dict[str, Any]:
     return self_awareness_adapters.working_stack_service_selection_policy(
         schema_prefix=SCHEMA_PREFIX,
@@ -24118,27 +23633,8 @@ def self_awareness_working_stack_service_selection_policy() -> dict[str, Any]:
     )
 
 
-def self_awareness_working_stack_policy_status(status: str, selection: dict[str, Any]) -> str:
-    return self_awareness_contracts.working_stack_policy_status(status, selection)
-
-
 def self_awareness_service_from_container(item: dict[str, Any]) -> str:
     return self_awareness_adapters.service_from_container(item)
-
-
-def self_awareness_stack_compose_module_roots() -> list[Path]:
-    return self_awareness_adapters.stack_compose_module_roots(
-        stack_paths(),
-        path_exists=lambda path: path.exists(),
-        path_is_dir=lambda path: path.is_dir(),
-    )
-
-
-def self_awareness_parse_compose_services(path: Path) -> list[str]:
-    return self_awareness_adapters.parse_compose_services(
-        path,
-        read_text=lambda item: item.read_text(encoding="utf-8", errors="replace"),
-    )
 
 
 def self_awareness_stack_compose_service_inventory() -> dict[str, Any]:
@@ -24162,14 +23658,6 @@ def self_awareness_stack_service_root_inventory() -> dict[str, Any]:
     )
 
 
-def self_awareness_stack_model_tags(path: Path) -> list[str]:
-    return self_awareness_adapters.stack_model_tags(path)
-
-
-def self_awareness_stack_model_service_candidates(tags: list[str]) -> list[str]:
-    return self_awareness_adapters.stack_model_service_candidates(tags)
-
-
 def self_awareness_stack_model_root_inventory(max_entries: int = 160, max_depth: int = 4) -> dict[str, Any]:
     return self_awareness_adapters.stack_model_root_inventory(
         schema_prefix=SCHEMA_PREFIX,
@@ -24184,68 +23672,6 @@ def self_awareness_stack_model_root_inventory(max_entries: int = 160, max_depth:
 
 def self_awareness_bounded_json_shape(value: Any, depth: int = 0, max_depth: int = 2, max_items: int = 12) -> Any:
     return self_awareness_contracts.bounded_json_shape(value, depth, max_depth, max_items)
-
-
-def self_awareness_http_probe_summary(response: dict[str, Any], kind: str) -> dict[str, Any]:
-    return self_awareness_contracts.http_probe_summary(response, kind)
-
-
-def self_awareness_container_http_probe(
-    service: str,
-    container: str,
-    probe: str,
-    url: str,
-    *,
-    method: str = "GET",
-    request_json: dict[str, Any] | None = None,
-    timeout: float = 4.0,
-    max_bytes: int = 65536,
-    expected_statuses: set[int] | None = None,
-) -> dict[str, Any]:
-    return self_awareness_adapters.container_http_probe(
-        service,
-        container,
-        probe,
-        url,
-        command_exists=command_exists,
-        run_command=lambda command, command_timeout: run(command, timeout=command_timeout),
-        clock=time.monotonic,
-        method=method,
-        request_json=request_json,
-        timeout=timeout,
-        max_bytes=max_bytes,
-        expected_statuses=expected_statuses,
-    )
-
-
-def self_awareness_container_python_smoke(
-    service: str,
-    container: str,
-    probe: str,
-    script: str,
-    *,
-    timeout: float = 10.0,
-) -> dict[str, Any]:
-    return self_awareness_adapters.container_python_smoke(
-        service,
-        container,
-        probe,
-        script,
-        run_command=lambda command, command_timeout: run(command, timeout=command_timeout),
-        clock=time.monotonic,
-        timeout=timeout,
-    )
-
-
-def self_awareness_tcp_probe(service: str, host: str, port: int, timeout: float = 1.2) -> dict[str, Any]:
-    return self_awareness_adapters.tcp_probe(
-        service,
-        host,
-        port,
-        tcp_connect=self_awareness_tcp_connect,
-        clock=time.monotonic,
-        timeout=timeout,
-    )
 
 
 def self_awareness_tcp_connect(host: str, port: int, timeout: float) -> None:
@@ -24342,71 +23768,6 @@ def self_awareness_working_stack_tts_smoke_probes(enabled: bool = True) -> list[
     )
 
 
-def self_awareness_working_stack_probe_ok(probes: list[dict[str, Any]], service: str, probe: str) -> bool:
-    return self_awareness_adapters.working_stack_probe_ok(probes, service, probe)
-
-
-def self_awareness_working_stack_tool_status(service: str, status: str, probes: list[dict[str, Any]]) -> str:
-    return self_awareness_adapters.working_stack_tool_status(service, status, probes)
-
-
-def self_awareness_collect_stack_model_path_refs(value: Any, *, limit: int = 48) -> list[dict[str, Any]]:
-    return self_awareness_adapters.collect_stack_model_path_refs(
-        value,
-        ai_model_roots=AI_MODEL_ROOTS,
-        limit=limit,
-    )
-
-
-def self_awareness_model_row_paths(model_rows: list[dict[str, Any]]) -> list[str]:
-    return self_awareness_adapters.model_row_paths(model_rows)
-
-
-def self_awareness_paths_overlap(left: str, right: str) -> bool:
-    return self_awareness_adapters.paths_overlap(left, right)
-
-
-def self_awareness_working_stack_model_bridge(
-    service: str,
-    model_rows: list[dict[str, Any]],
-    ai_caps: dict[str, Any],
-) -> dict[str, Any]:
-    return self_awareness_adapters.working_stack_model_bridge(
-        service,
-        model_rows,
-        ai_caps,
-        schema_prefix=SCHEMA_PREFIX,
-        ai_model_roots=AI_MODEL_ROOTS,
-        latest_paths={
-            "ai_capabilities": AI_CAPABILITIES_LATEST_PATH,
-            "ai_llm_registry": AI_LLM_REGISTRY_LATEST_PATH,
-            "ai_tts_profiles": AI_TTS_PROFILES_LATEST_PATH,
-            "ai_tts_eval_success": AI_TTS_EVAL_LATEST_SUCCESS_PATH,
-        },
-    )
-
-
-def self_awareness_working_stack_roles(service: str) -> list[str]:
-    return self_awareness_contracts.working_stack_roles(service)
-
-
-def self_awareness_working_stack_status(
-    service: str,
-    *,
-    running: bool,
-    declared: bool,
-    endpoint_ok: bool,
-    model_roots: int,
-) -> str:
-    return self_awareness_contracts.working_stack_status(
-        service,
-        running=running,
-        declared=declared,
-        endpoint_ok=endpoint_ok,
-        model_roots=model_roots,
-    )
-
-
 def self_awareness_working_stack_link(
     service: str,
     generated_at: str,
@@ -24496,10 +23857,6 @@ def self_awareness_working_stack_events(inventory: dict[str, Any], generated_at:
         working_stack_latest_path=SELF_AWARENESS_WORKING_STACK_LATEST_PATH,
         host=platform.node(),
     )
-
-
-def self_awareness_working_stack_gap_verifier_commands(service: str) -> list[str]:
-    return self_awareness_contracts.working_stack_gap_verifier_commands(service)
 
 
 def self_awareness_working_stack_gap_safe_next_action(service: str, status: str, gap_reason: str) -> dict[str, Any]:
@@ -24658,19 +24015,6 @@ def self_awareness_export_overlay_working_stack_activation_proof(
     )
 
 
-def self_awareness_working_stack_activation_entry(organ: dict[str, Any], order: int, generated_at: str) -> dict[str, Any]:
-    return self_awareness_adapters.working_stack_activation_entry(
-        organ,
-        order,
-        generated_at,
-        schema_prefix=SCHEMA_PREFIX,
-        working_stack_latest_path=SELF_AWARENESS_WORKING_STACK_LATEST_PATH,
-        spatial_graph_latest_path=SELF_AWARENESS_SPATIAL_GRAPH_LATEST_PATH,
-        episodes_latest_path=SELF_AWARENESS_EPISODES_LATEST_PATH,
-        alerts_latest_path=SELF_AWARENESS_ALERTS_LATEST_PATH,
-    )
-
-
 def self_awareness_working_stack_activation_entry_complete(entry: Any) -> bool:
     return self_awareness_adapters.working_stack_activation_entry_complete(
         entry,
@@ -24773,10 +24117,6 @@ def self_awareness_working_stack_link_integrity_matrix_complete(matrix: Any) -> 
 
 def self_awareness_working_stack_dependent_link_readmodels_fresh(matrix: Any) -> bool:
     return self_awareness_adapters.working_stack_dependent_link_readmodels_fresh(matrix)
-
-
-def self_awareness_autolink_row_state(row: dict[str, Any]) -> dict[str, Any]:
-    return self_awareness_adapters.autolink_row_state(row)
 
 
 def self_awareness_autolink_complete(doc: Any) -> bool:
@@ -25190,34 +24530,6 @@ def self_awareness_context_from_text(text: Any) -> dict[str, Any]:
     return self_awareness_contracts.context_from_text(text)
 
 
-def self_awareness_signal_fabric(
-    *,
-    signal: str,
-    source: str,
-    event_time: str,
-    observed_at: str,
-    source_query: str,
-    resource: dict[str, Any],
-    context: dict[str, Any],
-    space: dict[str, Any],
-    evidence_refs: list[dict[str, Any]],
-    truth_level: str,
-) -> dict[str, Any]:
-    return self_awareness_contracts.signal_fabric(
-        signal=signal,
-        source=source,
-        event_time=event_time,
-        observed_at=observed_at,
-        source_query=source_query,
-        resource=resource,
-        context=context,
-        space=space,
-        evidence_refs=evidence_refs,
-        truth_level=truth_level,
-        schema_prefix=SCHEMA_PREFIX,
-    )
-
-
 def self_awareness_make_event(
     signal: str,
     source: str,
@@ -25516,34 +24828,6 @@ def self_awareness_scheduler_static_timer_specs() -> list[dict[str, Any]]:
     ]
 
 
-def self_awareness_scheduler_discovered_timer_specs(existing: set[tuple[str, str]]) -> list[dict[str, Any]]:
-    return self_awareness_adapters.scheduler_discovered_timer_specs(
-        existing,
-        run_command=lambda command, timeout: run(command, timeout=timeout),
-    )
-
-
-def self_awareness_scheduler_timer_specs() -> list[dict[str, Any]]:
-    return self_awareness_adapters.scheduler_timer_specs(
-        self_awareness_scheduler_static_timer_specs(),
-        run_command=lambda command, timeout: run(command, timeout=timeout),
-    )
-
-
-def self_awareness_scheduler_timer_state(spec: dict[str, Any]) -> dict[str, Any]:
-    return self_awareness_adapters.scheduler_timer_state(
-        spec,
-        schema_prefix=SCHEMA_PREFIX,
-        unit_state=lambda unit, is_user: user_systemd_unit(unit) if is_user else systemd_unit(unit),
-        unit_properties=lambda unit, properties, is_user, timeout: systemd_unit_properties(
-            unit,
-            properties,
-            user=is_user,
-            timeout=timeout,
-        ),
-    )
-
-
 def self_awareness_scheduler_timer_events(generated_at: str) -> list[dict[str, Any]]:
     return self_awareness_adapters.scheduler_timer_events(
         generated_at,
@@ -25574,37 +24858,6 @@ def self_awareness_host_service_static_specs() -> list[dict[str, Any]]:
         {"scope": "user", "unit": "abyss-machine-typing-codex-session-tail.service", "category": "typing", "required": False},
         {"scope": "user", "unit": "ydotoold.service", "category": "input_actuation", "required": False},
     ]
-
-
-def self_awareness_host_service_discovered_specs(existing: set[tuple[str, str]]) -> list[dict[str, Any]]:
-    return self_awareness_adapters.host_service_discovered_specs(
-        existing,
-        run_command=lambda command, timeout: run(command, timeout=timeout),
-        service_category=self_awareness_host_service_category,
-    )
-
-
-def self_awareness_host_service_specs() -> list[dict[str, Any]]:
-    return self_awareness_adapters.host_service_specs(
-        self_awareness_host_service_static_specs(),
-        run_command=lambda command, timeout: run(command, timeout=timeout),
-        service_category=self_awareness_host_service_category,
-    )
-
-
-def self_awareness_host_service_state(spec: dict[str, Any]) -> dict[str, Any]:
-    return self_awareness_adapters.host_service_state(
-        spec,
-        schema_prefix=SCHEMA_PREFIX,
-        unit_state=lambda unit, is_user: user_systemd_unit(unit) if is_user else systemd_unit(unit),
-        unit_properties=lambda unit, properties, is_user, timeout: systemd_unit_properties(
-            unit,
-            properties,
-            user=is_user,
-            timeout=timeout,
-        ),
-        service_category=self_awareness_host_service_category,
-    )
 
 
 def self_awareness_host_service_events(generated_at: str) -> list[dict[str, Any]]:
@@ -26324,14 +25577,6 @@ def self_awareness_capability_matrix(
     )
 
 
-def self_awareness_openapi_summary(openapi_doc: dict[str, Any]) -> dict[str, Any]:
-    return self_awareness_stack_probe_adapters.openapi_summary(openapi_doc)
-
-
-def self_awareness_bounded_names_from_json(payload: Any, keys: set[str], limit: int = 32) -> list[str]:
-    return self_awareness_stack_probe_adapters.bounded_names_from_json(payload, keys, limit)
-
-
 def self_awareness_stack_memory_space_probe() -> dict[str, Any]:
     return self_awareness_stack_probe_adapters.stack_memory_space_probe(
         config=self_awareness_stack_probe_config(),
@@ -26526,14 +25771,6 @@ def self_awareness_trace_context_fallback(
         contract_port=self_awareness_trace_context_contract_port(),
         persistence_port=self_awareness_trace_context_persistence_port(),
     )
-
-
-def self_awareness_redact_url_userinfo(value: Any) -> str | None:
-    return self_awareness_stack_probe_adapters.redact_url_userinfo(value)
-
-
-def self_awareness_grafana_datasource_entry(entry: dict[str, Any]) -> dict[str, Any]:
-    return self_awareness_stack_probe_adapters.grafana_datasource_entry(entry)
 
 
 def self_awareness_grafana_datasource_probe(
@@ -27468,16 +26705,6 @@ def self_awareness_activation_contract_port() -> self_awareness_activation_contr
     )
 
 
-def self_awareness_working_stack_activation_episode_for_entry(
-    entry: dict[str, Any],
-    episodes_doc: dict[str, Any],
-) -> dict[str, Any]:
-    return self_awareness_activation_contracts.working_stack_activation_episode_for_entry(
-        entry,
-        episodes_doc,
-    )
-
-
 def self_awareness_working_stack_activation_missing_episode_services(
     activation_entries: list[dict[str, Any]],
     episodes_doc: dict[str, Any],
@@ -27496,53 +26723,6 @@ def self_awareness_stack_organ_state_digest(organ: dict[str, Any]) -> str:
     return self_awareness_activation_contracts.stack_organ_state_digest(organ)
 
 
-def self_awareness_stack_organ_movement_selection(
-    organ: dict[str, Any],
-    *,
-    current_state_digest: str,
-    previous_row: dict[str, Any] | None,
-) -> dict[str, Any]:
-    return self_awareness_activation_contracts.stack_organ_movement_selection(
-        organ,
-        current_state_digest=current_state_digest,
-        previous_row=previous_row,
-        schema_prefix=SCHEMA_PREFIX,
-    )
-
-
-def self_awareness_working_stack_organ_entry(
-    organ: dict[str, Any],
-    activation_entry: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    return self_awareness_activation_contracts.working_stack_organ_entry(
-        organ,
-        activation_entry,
-        state_digest=self_awareness_stack_organ_state_digest,
-    )
-
-
-def self_awareness_working_stack_activation_smoke_row(
-    entry: dict[str, Any],
-    *,
-    generated_at: str,
-    run_id: str,
-    episode: dict[str, Any],
-    investigation: dict[str, Any],
-    replay: dict[str, Any],
-) -> dict[str, Any]:
-    return self_awareness_activation_contracts.working_stack_activation_smoke_row(
-        entry,
-        generated_at=generated_at,
-        run_id=run_id,
-        episode=episode,
-        investigation=investigation,
-        replay=replay,
-        paths=self_awareness_activation_contract_paths(),
-        config=self_awareness_activation_contract_config(),
-        contract_port=self_awareness_activation_contract_port(),
-    )
-
-
 def self_awareness_working_stack_movement_smoke_row(
     organ: dict[str, Any],
     activation_entry: dict[str, Any] | None,
@@ -27557,26 +26737,6 @@ def self_awareness_working_stack_movement_smoke_row(
         previous_row,
         generated_at=generated_at,
         run_id=run_id,
-        paths=self_awareness_activation_contract_paths(),
-        config=self_awareness_activation_contract_config(),
-        contract_port=self_awareness_activation_contract_port(),
-    )
-
-
-def self_awareness_stack_organ_use_packet(
-    entry: dict[str, Any],
-    row: dict[str, Any],
-    *,
-    generated_at: str,
-    run_id: str,
-    previous_row: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    return self_awareness_activation_contracts.stack_organ_use_packet(
-        entry,
-        row,
-        generated_at=generated_at,
-        run_id=run_id,
-        previous_row=previous_row,
         paths=self_awareness_activation_contract_paths(),
         config=self_awareness_activation_contract_config(),
         contract_port=self_awareness_activation_contract_port(),
@@ -27785,10 +26945,6 @@ def self_awareness_completion_route_packet_issues(packet_index: Any, *, expected
     return self_awareness_entity_context_contracts.completion_route_packet_issues(packet_index, expected_routes=expected_routes, expected_actions=expected_actions, config=self_awareness_entity_context_config())
 
 
-def self_awareness_completion_route_packet_index_complete(packet_index: Any, *, expected_routes: int | None=None, expected_actions: int | None=None) -> bool:
-    return self_awareness_entity_context_contracts.completion_route_packet_index_complete(packet_index, expected_routes=expected_routes, expected_actions=expected_actions, config=self_awareness_entity_context_config())
-
-
 def self_awareness_stack_requirement_ids_for_doc(
     requirements_doc: dict[str, Any],
 ) -> set[str]:
@@ -27970,14 +27126,6 @@ def self_awareness_http_status_with_headers(url: str, headers: dict[str, str], t
         timeout=timeout,
         max_bytes=max_bytes,
     )
-
-
-def self_awareness_env_int(name: str, default: int) -> int:
-    return self_awareness_adapters.env_int(name, default, env_get=os.environ.get)
-
-
-def self_awareness_env_float(name: str, default: float) -> float:
-    return self_awareness_adapters.env_float(name, default, env_get=os.environ.get)
 
 
 def self_awareness_proc_meminfo_bytes() -> dict[str, int]:
@@ -28373,10 +27521,6 @@ def self_awareness_coverage_contract_port() -> self_awareness_coverage_contracts
 
 def self_awareness_objective_coverage_specs() -> list[dict[str, Any]]:
     return self_awareness_coverage_contracts.objective_coverage_specs()
-
-
-def self_awareness_objective_coverage_planes(spec: dict[str, Any]) -> list[str]:
-    return self_awareness_coverage_contracts.objective_coverage_planes(spec)
 
 
 def self_awareness_objective_coverage_audit(
@@ -30310,26 +29454,6 @@ def validation_json_file(
     return data
 
 
-def validation_jsonl_recent(checks: list[dict[str, Any]], key: str, path: Path, required: bool = False) -> None:
-    status = topology_jsonl_status(path)
-    if not status.get("exists"):
-        topology_validation_add(
-            checks,
-            "fail" if required else "warn",
-            key,
-            f"{path} JSONL missing",
-            {"path": str(path), **status},
-        )
-        return
-    topology_validation_add(
-        checks,
-        "fail" if status.get("invalid") else "ok",
-        key,
-        f"{path} JSONL valid" if not status.get("invalid") else f"{path} JSONL invalid",
-        {"path": str(path), **status},
-    )
-
-
 def topology_audit(write_latest: bool = True) -> dict[str, Any]:
     previous, previous_error = load_json_document(TOPOLOGY_AUDIT_LATEST_PATH)
     validation = topology_validate(strict=False, write_latest=True)
@@ -31291,23 +30415,7 @@ def docs_agents_mesh_validate(strict: bool = False, write_latest: bool = True) -
     return data
 
 
-def docs_markdown_section_map(text: str) -> dict[str, str]:
-    return docs_contracts.markdown_section_map(text)
-
-
-def docs_compact_markdown_text(text: str, limit: int = 420) -> str:
-    return docs_contracts.compact_markdown_text(text, limit=limit)
-
-
-def docs_section_bullets(text: str) -> list[str]:
-    return docs_contracts.section_bullets(text)
-
-
 DECISION_FILENAME_RE = docs_contracts.DECISION_FILENAME_RE
-
-
-def docs_decision_filename_parts(path: Path) -> dict[str, Any] | None:
-    return docs_contracts.decision_filename_parts(path)
 
 
 def docs_decision_sort_key(path: Path) -> tuple[int, int, str]:
@@ -32182,24 +31290,6 @@ def subsystem_validate(name: str, strict: bool = False, write_latest: bool = Tru
             data["ok"] = False
             data["write_errors"] = errors
     return data
-
-
-def subsystem_validate_all(strict: bool = False, write_latest: bool = True) -> dict[str, Any]:
-    results = {name: subsystem_validate(name, strict=strict, write_latest=write_latest) for name in subsystem_specs()}
-    checks = [
-        {
-            "level": "fail" if result.get("summary", {}).get("fails") else "warn" if result.get("summary", {}).get("warnings") else "ok",
-            "key": f"subsystem:{name}",
-            "message": f"{name} validator {result.get('summary', {}).get('status')}",
-            "data": result.get("summary"),
-        }
-        for name, result in results.items()
-    ]
-    return subsystems_validate_document_from_checks(
-        checks,
-        strict=strict,
-        results=results,
-    )
 
 
 def graph_node(node_id: str, kind: str, label: str, **extra: Any) -> dict[str, Any]:
@@ -33954,14 +33044,6 @@ def mode_paths() -> dict[str, Any]:
     )
 
 
-def mode_default_policy() -> dict[str, Any]:
-    return mode_contracts.default_policy(
-        schema_prefix=SCHEMA_PREFIX,
-        version=VERSION,
-        generated_at=now_iso(),
-    )
-
-
 def mode_policy_document() -> dict[str, Any]:
     data, error = load_json_document(MODE_POLICY_PATH)
     return mode_contracts.policy_document(
@@ -33978,29 +33060,11 @@ def mode_profile_policy(mode_name: str) -> dict[str, Any]:
     return mode_contracts.profile_policy(mode_policy_document(), mode_name)
 
 
-def mode_workload_level(name: str | None) -> int:
-    return mode_contracts.workload_level(name)
-
-
-def mode_workload_name_for_level(level: int) -> str:
-    return mode_contracts.workload_name_for_level(level)
-
-
 def mode_thermal_class_from_summary(summary: dict[str, Any]) -> str:
     auto = cooling_config().get("auto", {})
     if not isinstance(auto, dict):
         auto = {}
     return mode_contracts.thermal_class_from_summary(summary, thresholds=auto)
-
-
-def mode_max_unattended_class(profile: dict[str, Any], thermal_class: str, effective_mode: str, ac_online: bool) -> str:
-    return mode_contracts.max_unattended_class(
-        profile=profile,
-        thermal_class=thermal_class,
-        effective_mode=effective_mode,
-        ac_online=ac_online,
-        policy=mode_policy_document(),
-    )
 
 
 def mode_index_document(status_data: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -34710,14 +33774,6 @@ def doctor_validate_document_from_checks(
     )
 
 
-def doctor_state(summary: dict[str, Any], checks: list[dict[str, Any]], safe_actions: list[dict[str, Any]]) -> str:
-    return doctor_contracts.state(summary, checks, safe_actions)
-
-
-def doctor_readiness_score(summary: dict[str, Any]) -> int:
-    return doctor_contracts.readiness_score(summary)
-
-
 def doctor_safe_repair_port() -> doctor_adapters.DoctorSafeRepairPort:
     return doctor_adapters.DoctorSafeRepairPort(
         semantic_maintain=lambda no_thermal_sample: nervous_cli.nervous_semantic_maintain(
@@ -34996,19 +34052,6 @@ def doctor_machine_report_input_port(no_thermal_sample: bool) -> doctor_adapters
         collect_ai_policy=lambda: ai_cli.ai_policy(write_latest=True),
         read_artifact=doctor_machine_report_artifact,
     )
-
-
-def doctor_machine_report_service_summary(item: dict[str, Any]) -> dict[str, Any]:
-    return doctor_contracts.machine_report_service_summary(item)
-
-
-def doctor_machine_report_status(
-    doctor_data: dict[str, Any],
-    memory_data: dict[str, Any],
-    nervous_data: dict[str, Any],
-    ai_policy_data: dict[str, Any],
-) -> str:
-    return doctor_contracts.machine_report_status(doctor_data, memory_data, nervous_data, ai_policy_data)
 
 
 def doctor_machine_report_markdown(data: dict[str, Any]) -> str:
@@ -35986,20 +35029,6 @@ def heartbeat_capture_health_from(
             "sensitive_skips_are_expected_health_signal": True,
         },
     }
-
-
-def heartbeat_capture_health(
-    capture_status: dict[str, Any],
-    retention_plan: dict[str, Any],
-    generated_at: str,
-) -> dict[str, Any]:
-    return heartbeat_capture_health_from(
-        capture_status=capture_status,
-        retention_plan=retention_plan,
-        privacy_status=nervous_effective_privacy(write_latest=False),
-        typing_status_data=typing_status(write_latest=False),
-        generated_at=generated_at,
-    )
 
 
 def heartbeat_validation_failed_checks(data: dict[str, Any]) -> list[dict[str, Any]]:

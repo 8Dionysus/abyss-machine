@@ -351,14 +351,6 @@ def json_path_references(path: str, documents: Sequence[tuple[str, Mapping[str, 
     return {"checked": True, "active": bool(hits), "matches": hits[:100], "match_count": len(hits)}
 
 
-def _target_matches_candidate(target: str, candidate: str) -> bool:
-    if not target or not candidate or target.startswith("podman://"):
-        return False
-    clean_target = target.removesuffix(" (deleted)")
-    candidate_root = candidate.rstrip("/") or "/"
-    return clean_target == candidate_root or clean_target.startswith(candidate_root.rstrip("/") + "/")
-
-
 def _target_candidate_prefixes(target: str) -> list[str]:
     """Return absolute target ancestors in root-to-leaf order."""
     clean_target = target.removesuffix(" (deleted)")

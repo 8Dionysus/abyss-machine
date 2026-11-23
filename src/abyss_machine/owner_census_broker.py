@@ -222,12 +222,6 @@ def validate_aggregate_descriptor_bound(processes: Any, bounds: Any, field: str)
     return total
 
 
-def _validate_processes(processes: Any, bounds: Any, field: str) -> int:
-    """Compatibility alias for the owner aggregate semantic validator."""
-
-    return validate_aggregate_descriptor_bound(processes, bounds, field)
-
-
 def _wire_processes(value: Any, bounds: Any, field: str) -> tuple["ProcessReferenceEvidence", ...]:
     """Preflight nested process arrays before constructing typed evidence."""
 
@@ -506,14 +500,6 @@ class CensusBounds:
         )
 
     from_dict = from_wire
-
-
-def _normalize_identities(values: Sequence[Any], field: str) -> tuple[ReferenceIdentity, ...]:
-    if type(values) not in (tuple, list):
-        raise CensusContractError(f"{field} must be a bounded sequence")
-    if len(values) > MAX_TARGET_IDENTITIES:
-        raise CensusContractError(f"{field} exceeds its collection bound")
-    return tuple(_identity_tuple(item, field) for item in values)
 
 
 @dataclass(frozen=True, slots=True)

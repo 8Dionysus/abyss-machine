@@ -296,10 +296,6 @@ def _expected_resource_route(provider: Mapping[str, Any]) -> str:
     return f"route:{_MACHINE_OWNER}/code-intelligence/{_text(provider.get('id'))}"
 
 
-def _provider_owner(provider: Mapping[str, Any]) -> str:
-    return _text(provider.get("host_owner")) or _MACHINE_OWNER
-
-
 def _observation_evidence_conflicts(
     observation: Mapping[str, Any],
     name: str,
@@ -325,14 +321,6 @@ def _observation_evidence_conflicts(
         if len(meaningful) > 1 and any(item != meaningful[0] for item in meaningful[1:]):
             conflicts.append(key)
     return sorted(conflicts)
-
-
-def _merge_mappings(*values: Any) -> dict[str, Any]:
-    merged: dict[str, Any] = {}
-    for value in values:
-        if isinstance(value, Mapping):
-            merged.update({str(key): item for key, item in value.items()})
-    return merged
 
 
 def _provider_path(provider_id: str) -> dict[str, str]:
@@ -1160,52 +1148,6 @@ def _gate_input(observation: Mapping[str, Any], name: str) -> tuple[Any, str, st
     return value, observed_at, evidence_ref
 
 
-def _live_gate_record(
-    name: str,
-    value: Any,
-    observed_at: str,
-    evidence_ref: str,
-) -> dict[str, Any]:
-    if not isinstance(value, bool):
-        state = "unknown"
-        reason = f"{name}_unknown"
-        ok: bool | None = None
-    elif not value:
-        state = "failed"
-        reason = f"{name}_failed"
-        ok = False
-    elif not observed_at:
-        state = "unknown"
-        reason = f"{name}_missing_observed_at"
-        ok = None
-    elif not _valid_observed_at(observed_at):
-        state = "unknown"
-        reason = f"{name}_invalid_observed_at"
-        ok = None
-    elif not evidence_ref:
-        state = "unknown"
-        reason = f"{name}_missing_evidence_ref"
-        ok = None
-    elif not _valid_evidence_ref(evidence_ref):
-        state = "unknown"
-        reason = f"{name}_invalid_evidence_ref"
-        ok = None
-    else:
-        state = "verified"
-        reason = None
-        ok = True
-    record: dict[str, Any] = {
-        "required": True,
-        "state": state,
-        "ok": ok,
-        "observed_at": observed_at or None,
-        "evidence_ref": evidence_ref or None,
-    }
-    if reason:
-        record["blocking_reason"] = reason
-    return record
-
-
 def _not_required_gate() -> dict[str, Any]:
     return {
         "required": False,
@@ -1326,133 +1268,6 @@ def _validate_nested_identity(
     elif owner != _MACHINE_OWNER or owner != _text(provider.get("host_owner")):
         failures.append(f"{name}_owner_mismatch")
     return failures
-
-
-def _validate_installation_evidence(
-    provider: Mapping[str, Any],
-    observation: Mapping[str, Any],
-) -> tuple[list[str], dict[str, Any]]:
-    failures: list[str] = []
-    failures.extend(_validate_observation_binding(provider, observation))
-    canonical = observation.get("installation_identity")
-    installed = observation.get("installed")
-    if not isinstance(canonical, Mapping):
-        failures.append("installed_identity_missing_canonical_identity")
-        if not isinstance(installed, Mapping):
-            failures.append("installed_identity_missing")
-        return failures, {}
-    if not isinstance(installed, Mapping):
-        return [*failures, "installed_identity_missing"], {}
-
-    provider_id = _text(provider.get("id"))
-    if _text(canonical.get("provider_id")) != provider_id:
-        failures.append("installed_identity_provider_id_mismatch")
-    canonical_owner = _text(canonical.get("owner"))
-    if canonical_owner != _MACHINE_OWNER:
-        failures.append("installed_identity_owner_mismatch")
-
-    version = _text(canonical.get("version"))
-    if not version:
-        failures.append("installed_identity_missing_version")
-    executable_or_path = _text(canonical.get("executable_or_path"))
-    if not executable_or_path:
-        failures.append("installed_identity_missing_executable_or_path")
-    elif not _safe_identity_token(executable_or_path):
-        failures.append("installed_identity_invalid_executable_or_path")
-
-    observed_version = _text(installed.get("version"))
-    observed_executable_or_path = _text(installed.get("executable")) or _text(installed.get("path"))
-    if observed_version != version:
-        failures.append("installed_identity_observation_version_mismatch")
-    if observed_executable_or_path != executable_or_path and Path(observed_executable_or_path).name != Path(executable_or_path).name:
-        failures.append("installed_identity_observation_path_mismatch")
-
-    installation = provider.get("installation") if isinstance(provider.get("installation"), Mapping) else {}
-    declared_executable = _text(installation.get("executable"))
-    if declared_executable and executable_or_path:
-        observed_executable = Path(executable_or_path).name
-        if observed_executable != declared_executable and executable_or_path != declared_executable:
-            failures.append("installed_identity_executable_mismatch")
-    expected_version = _text(installation.get("expected_version"))
-    if expected_version and version and version != expected_version:
-        failures.append("installed_identity_version_mismatch")
-
-    artifact = provider.get("artifact") if isinstance(provider.get("artifact"), Mapping) else {}
-    artifact_required = artifact.get("required") is True
-    installed_digest = _text(canonical.get("digest"))
-    observed_digest = _text(installed.get("digest"))
-    if observed_digest != installed_digest:
-        failures.append("installed_identity_observation_digest_mismatch")
-        if observed_digest and installed_digest:
-            failures.append("installed_identity_artifact_digest_mismatch")
-    if artifact_required and not _valid_digest(installed_digest):
-        failures.append("installed_identity_missing_digest")
-    return failures, {
-        "version": version or None,
-        "executable_or_path": executable_or_path or None,
-        "digest": installed_digest or None,
-    }
-
-
-def _validate_artifact_and_trust_evidence(
-    provider: Mapping[str, Any],
-    observation: Mapping[str, Any],
-) -> tuple[list[str], dict[str, Any], dict[str, Any]]:
-    failures: list[str] = []
-    artifact_declaration = provider.get("artifact") if isinstance(provider.get("artifact"), Mapping) else {}
-    artifact_evidence = _observation_evidence_mapping(observation, "artifact_identity", "artifact")
-    failures.extend(_validate_nested_identity(provider, "artifact_identity", artifact_evidence))
-    if _observation_evidence_conflicts(observation, "artifact_identity", "artifact"):
-        failures.append("artifact_identity_conflicting_evidence")
-    expected_class = _text(artifact_declaration.get("class"))
-    artifact_class = _text(artifact_evidence.get("artifact_class")) or _text(artifact_evidence.get("class"))
-    if not artifact_class:
-        failures.append("artifact_identity_missing_class")
-    elif expected_class and artifact_class != expected_class:
-        failures.append("artifact_identity_class_mismatch")
-
-    subject_digest = _text(artifact_evidence.get("subject_digest")) or _text(artifact_evidence.get("digest"))
-    if not subject_digest:
-        failures.append("artifact_identity_missing_subject_digest")
-    elif not _valid_digest(subject_digest):
-        failures.append("artifact_identity_invalid_subject_digest")
-    source_ref = _text(artifact_evidence.get("source_ref")) or _text(artifact_evidence.get("source"))
-    if artifact_declaration.get("source_ref_required") is True and not source_ref:
-        failures.append("artifact_identity_missing_source_ref")
-    elif artifact_declaration.get("source_ref_required") is True and not _valid_evidence_ref(source_ref):
-        failures.append("artifact_identity_invalid_source_ref")
-    elif artifact_declaration.get("source_ref_required") is True and not source_ref.startswith("source:"):
-        failures.append("artifact_identity_unqualified_source_ref")
-
-    trust_evidence = _observation_evidence_mapping(observation, "trust_gate", "trust", "trust_identity")
-    failures.extend(_validate_nested_identity(provider, "trust_gate", trust_evidence))
-    if _observation_evidence_conflicts(observation, "trust_gate", "trust", "trust_identity"):
-        failures.append("trust_gate_conflicting_evidence")
-    verdict = _text(trust_evidence.get("verdict")) or _text(trust_evidence.get("status"))
-    if artifact_declaration.get("trust_gate_required") is True and not verdict:
-        failures.append("trust_gate_missing_verdict")
-    elif artifact_declaration.get("trust_gate_required") is True and verdict.lower() not in _TRUST_VERDICTS:
-        failures.append("trust_gate_invalid_verdict")
-    trusted_subject = _text(trust_evidence.get("subject_digest")) or _text(trust_evidence.get("digest"))
-    if artifact_declaration.get("subject_digest_required") is True and not trusted_subject:
-        failures.append("trust_gate_missing_subject_digest")
-    elif trusted_subject and subject_digest and trusted_subject != subject_digest:
-        failures.append("trust_gate_subject_mismatch")
-    trust_ref = _text(trust_evidence.get("evidence_ref"))
-    if artifact_declaration.get("trust_gate_required") is True and not _valid_evidence_ref(trust_ref):
-        failures.append("trust_gate_missing_evidence_ref")
-    elif artifact_declaration.get("trust_gate_required") is True and not trust_ref.startswith("trust:"):
-        failures.append("trust_gate_unqualified_evidence_ref")
-
-    return failures, {
-        "artifact_class": artifact_class or None,
-        "subject_digest": subject_digest or None,
-        "source_ref": source_ref or None,
-    }, {
-        "verdict": verdict.lower() or None,
-        "subject_digest": trusted_subject or None,
-        "evidence_ref": trust_ref or None,
-    }
 
 
 def _validate_resource_evidence(
@@ -1960,34 +1775,6 @@ def _validate_owner_admission_receipt(
         },
     }
     return failures, identity_checks, gates
-
-
-def _validate_admission_evidence(
-    provider: Mapping[str, Any],
-    observation: Mapping[str, Any],
-) -> tuple[list[str], dict[str, Any]]:
-    failures, installed_identity = _validate_installation_evidence(provider, observation)
-    artifact = provider.get("artifact") if isinstance(provider.get("artifact"), Mapping) else {}
-    artifact_identity: dict[str, Any] = {}
-    trust_identity: dict[str, Any] = {}
-    if artifact.get("required") is True:
-        artifact_failures, artifact_identity, trust_identity = _validate_artifact_and_trust_evidence(provider, observation)
-        failures.extend(artifact_failures)
-        installed_digest = _text(installed_identity.get("digest"))
-        subject_digest = _text(artifact_identity.get("subject_digest"))
-        if installed_digest and subject_digest and installed_digest != subject_digest:
-            failures.append("installed_identity_artifact_digest_mismatch")
-    resource_failures, resource_identity = _validate_resource_evidence(provider, observation)
-    failures.extend(resource_failures)
-    measurement_failures, measurement = _validate_live_measurement(provider, observation, installed_identity)
-    failures.extend(measurement_failures)
-    return failures, {
-        "installation": installed_identity,
-        "artifact": artifact_identity,
-        "trust": trust_identity,
-        "resource": resource_identity,
-        "live_measurement": measurement,
-    }
 
 
 def admit_provider(

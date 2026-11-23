@@ -224,11 +224,6 @@ def _route_filesystem_device(target: Path, route_metadata: Mapping[str, Any] | N
     return actual_device if actual_device == expected_device else None
 
 
-def _route_filesystem_identity_ok(target: Path, route_metadata: Mapping[str, Any] | None) -> bool:
-    """Compatibility predicate for callers that only need the guard result."""
-    return _route_filesystem_device(target, route_metadata) is not None
-
-
 def _lock(root: Path):
     root.mkdir(parents=True, exist_ok=True)
     handle = open(root / ".lock", "a+", encoding="utf-8")

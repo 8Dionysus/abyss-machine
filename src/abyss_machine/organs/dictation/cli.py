@@ -274,10 +274,6 @@ def default_dictation_config() -> dict[str, Any]:
     return dictation_profile_adapters.default_config(_core.SCHEMA_PREFIX, _core.VERSION)
 
 
-def validate_dictation_config(config: dict[str, Any]) -> list[str]:
-    return dictation_profile_adapters.validate_config(config)
-
-
 def dictation_config() -> dict[str, Any]:
     return dictation_profile_adapters.load_config(
         dictation_config_paths(),
@@ -299,20 +295,6 @@ def save_dictation_config(config: dict[str, Any], updated_by: str) -> None:
     )
 
 
-def concrete_dictation_profile_defaults() -> dict[str, dict[str, Any]]:
-    return dictation_profile_adapters.concrete_profile_defaults(DICTATION_MODEL_ROOT)
-
-
-def dictation_runtime_options(profile: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any]:
-    config = config or dictation_config()
-    return dictation_profile_adapters.runtime_options(profile, config, os.environ)
-
-
-def dictation_postprocess_options(profile: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any]:
-    config = config or dictation_config()
-    return dictation_profile_adapters.postprocess_options(profile, config, os.environ)
-
-
 def dictation_profiles() -> dict[str, dict[str, Any]]:
     config = dictation_config()
     return dictation_profile_adapters.profile_map(
@@ -332,16 +314,6 @@ def requested_dictation_profile_name(name: str | None = None) -> str:
     )
 
 
-def auto_select_dictation_profile(audio: str | None, config: dict[str, Any], profiles: dict[str, dict[str, Any]]) -> tuple[str, dict[str, Any]]:
-    return dictation_profile_adapters.auto_select_profile(
-        audio,
-        config=config,
-        profiles=profiles,
-        env=os.environ,
-        wav_stats_fn=wav_stats,
-    )
-
-
 def dictation_profile(name: str | None = None, audio: str | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
     return dictation_profile_adapters.select_profile(
         name,
@@ -352,10 +324,6 @@ def dictation_profile(name: str | None = None, audio: str | None = None) -> tupl
         default_profile=DICTATION_DEFAULT_PROFILE,
         wav_stats_fn=wav_stats,
     )
-
-
-def dictation_runtime_env(runtime: dict[str, Any]) -> dict[str, str]:
-    return dictation_profile_adapters.runtime_env(runtime, os.environ)
 
 
 @contextmanager
@@ -377,10 +345,6 @@ def dictation_busy_result(action: str = "busy") -> dict[str, Any]:
 
 def dictation_max_seconds() -> int:
     return dictation_runtime_adapters.max_seconds(os.environ, DICTATION_DEFAULT_MAX_SECONDS)
-
-
-def read_dictation_state() -> dict[str, Any] | None:
-    return dictation_execution_adapters.read_recording_state(dictation_recording_paths())
 
 
 def recording_age_seconds(state: dict[str, Any]) -> float | None:
@@ -441,14 +405,6 @@ def recent_dictation_wavs(limit: int = 12) -> list[Path]:
     return dictation_execution_adapters.recent_wavs(dictation_audio_paths(), limit)
 
 
-def default_dictation_replacements() -> list[dict[str, Any]]:
-    return dictation_contracts.default_replacements()
-
-
-def default_dictation_replacements_document() -> dict[str, Any]:
-    return dictation_replacements_adapters.default_document(_core.SCHEMA_PREFIX, _core.VERSION)
-
-
 def dictation_replacements_document() -> dict[str, Any]:
     return dictation_replacements_adapters.load_document(
         dictation_replacements_paths(),
@@ -468,10 +424,6 @@ def save_dictation_replacements_document(doc: dict[str, Any], updated_by: str) -
         now=_core.now_iso,
         write_json_document=_core.atomic_write_json,
     )
-
-
-def apply_dictation_replacements(text: str) -> tuple[str, list[str]]:
-    return dictation_replacements_adapters.apply_text(text, dictation_replacements_document())
 
 
 def dictation_replacements_list() -> dict[str, Any]:
@@ -606,15 +558,6 @@ def dictation_stop() -> dict[str, Any]:
         return dictation_busy_result("stop-busy")
 
 
-def detect_dictation_intent(text: str, config: dict[str, Any] | None = None) -> dict[str, Any]:
-    return dictation_postprocess_adapters.detect_intent(
-        text,
-        config=config,
-        config_document=dictation_config,
-        schema_prefix=_core.SCHEMA_PREFIX,
-    )
-
-
 def dictation_intent_test(text: str) -> dict[str, Any]:
     return dictation_postprocess_adapters.intent_test_document(
         text,
@@ -641,30 +584,6 @@ def dictation_journal_enabled() -> bool:
 
 def dictation_journal_include_failed() -> bool:
     return dictation_execution_adapters.journal_include_failed(dictation_config)
-
-
-def dictation_audio_metadata(audio: Any) -> dict[str, Any]:
-    return dictation_execution_adapters.audio_metadata(audio, wav_duration_fn=wav_duration)
-
-
-def dictation_journal_entry_id(result: dict[str, Any], audio: Any) -> str:
-    return dictation_contracts.journal_entry_id(result, audio, _core.now_iso())
-
-
-def dictation_journal_event(result: dict[str, Any]) -> dict[str, Any] | None:
-    return dictation_execution_adapters.journal_event(
-        result,
-        include_failed=dictation_journal_include_failed(),
-        paths=dictation_journal_paths(),
-        schema_prefix=_core.SCHEMA_PREFIX,
-        version=_core.VERSION,
-        now=_core.now_iso,
-        wav_duration_fn=wav_duration,
-    )
-
-
-def dictation_journal_markdown(event: dict[str, Any], include_header: bool) -> str:
-    return dictation_contracts.journal_markdown(event, include_header)
 
 
 def dictation_journal_write(result: dict[str, Any]) -> dict[str, Any]:
