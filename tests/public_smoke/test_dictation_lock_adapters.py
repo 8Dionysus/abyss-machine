@@ -100,7 +100,7 @@ def test_cli_dictation_lock_binds_path_and_timeout(monkeypatch, tmp_path: Path) 
         captured["timeout_sec"] = timeout_sec
         yield
 
-    monkeypatch.setattr(cli, "dictation_lock_file", lambda: lock_path)
+    monkeypatch.setattr(cli.dictation_cli, "dictation_lock_file", lambda: lock_path)
     monkeypatch.setattr(dictation_lock_adapters, "dictation_lock", fake_lock)
 
     with cli.dictation_lock(timeout_sec=1.5):
@@ -121,7 +121,7 @@ def test_cli_completion_lock_binds_path_and_timeout(monkeypatch, tmp_path: Path)
         captured["timeout_sec"] = timeout_sec
         yield
 
-    monkeypatch.setattr(cli, "dictation_completion_lock_file", lambda: lock_path)
+    monkeypatch.setattr(cli.dictation_cli, "dictation_completion_lock_file", lambda: lock_path)
     monkeypatch.setattr(dictation_lock_adapters, "completion_lock", fake_lock)
 
     with cli.dictation_completion_lock(timeout_sec=2.5):

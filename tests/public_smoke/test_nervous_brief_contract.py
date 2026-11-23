@@ -219,7 +219,7 @@ def test_cli_recent_episodes_delegates_projection_to_module(monkeypatch) -> None
     ]
     parse_errors = [{"line": 1, "error": "bad"}]
 
-    monkeypatch.setattr(cli, "nervous_episode_records", lambda: (items, parse_errors))
+    monkeypatch.setattr(cli.nervous_cli, "nervous_episode_records", lambda: (items, parse_errors))
 
     assert cli.nervous_recent_episodes(limit=2, scope="now") == recent_episodes_document(
         items,
@@ -247,28 +247,28 @@ def test_cli_nervous_brief_delegates_document_shape_to_module(monkeypatch) -> No
     recent = {"items": [{"episode_id": "eps-cli"}], "summary": {"returned": 1}}
     calls: list[tuple[object, ...]] = []
 
-    monkeypatch.setattr(cli, "NERVOUS_BRIEF_CACHE", {})
-    monkeypatch.setattr(cli, "nervous_quality_audit", lambda **kwargs: calls.append(("quality", kwargs)) or quality)
-    monkeypatch.setattr(cli, "nervous_status", lambda **kwargs: calls.append(("status", kwargs)) or {"ok": True})
+    monkeypatch.setattr(cli.nervous_cli, "NERVOUS_BRIEF_CACHE", {})
+    monkeypatch.setattr(cli.nervous_cli, "nervous_quality_audit", lambda **kwargs: calls.append(("quality", kwargs)) or quality)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_status", lambda **kwargs: calls.append(("status", kwargs)) or {"ok": True})
     monkeypatch.setattr(cli, "nervous_privacy_status", lambda **kwargs: calls.append(("privacy", kwargs)) or privacy)
     monkeypatch.setattr(cli, "nervous_capture_status", lambda: calls.append(("capture",)) or capture)
-    monkeypatch.setattr(cli, "nervous_index_status", lambda **kwargs: calls.append(("index", kwargs)) or index_status)
-    monkeypatch.setattr(cli, "nervous_semantic_status", lambda **kwargs: calls.append(("semantic", kwargs)) or semantic_status)
-    monkeypatch.setattr(cli, "nervous_derived_refresh_status", lambda: calls.append(("derived",)) or derived_refresh)
-    monkeypatch.setattr(cli, "nervous_synthesis_latest", lambda: calls.append(("synthesis",)) or synthesis)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_index_status", lambda **kwargs: calls.append(("index", kwargs)) or index_status)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_semantic_status", lambda **kwargs: calls.append(("semantic", kwargs)) or semantic_status)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_derived_refresh_status", lambda: calls.append(("derived",)) or derived_refresh)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_synthesis_latest", lambda: calls.append(("synthesis",)) or synthesis)
     monkeypatch.setattr(cli, "observability_status", lambda: calls.append(("observability",)) or observability)
     monkeypatch.setattr(cli, "memory_plan", lambda **kwargs: calls.append(("memory", kwargs)) or memory)
     monkeypatch.setattr(cli, "storage_status", lambda **kwargs: calls.append(("storage", kwargs)) or storage)
     monkeypatch.setattr(cli, "process_latest", lambda: calls.append(("processes",)) or processes)
     monkeypatch.setattr(cli, "resource_status", lambda **kwargs: calls.append(("resource", kwargs)) or resource)
-    monkeypatch.setattr(cli, "nervous_recent_episodes", lambda **kwargs: calls.append(("recent", kwargs)) or recent)
-    monkeypatch.setattr(cli, "nervous_semantic_config", lambda: calls.append(("semantic_config",)) or semantic_config)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_recent_episodes", lambda **kwargs: calls.append(("recent", kwargs)) or recent)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_semantic_config", lambda: calls.append(("semantic_config",)) or semantic_config)
 
     def fake_maintain_assess(status, min_delta, max_stale, force_refresh=False):
         calls.append(("semantic_maintain", status, min_delta, max_stale, force_refresh))
         return semantic_maintenance
 
-    monkeypatch.setattr(cli, "nervous_semantic_maintain_assess", fake_maintain_assess)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_semantic_maintain_assess", fake_maintain_assess)
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-26T12:00:00+00:00")
 
     data = cli.nervous_brief(scope="today", limit=3, refresh=True, write_latest=False)

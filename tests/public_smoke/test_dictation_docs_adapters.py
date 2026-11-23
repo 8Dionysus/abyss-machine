@@ -152,7 +152,7 @@ def test_cli_dictation_docs_wrappers_bind_docs_adapter(monkeypatch, tmp_path: Pa
         captured["ensure_docs"] = (paths_arg, kwargs)
         return []
 
-    monkeypatch.setattr(cli, "dictation_docs_paths", lambda: paths)
+    monkeypatch.setattr(cli.dictation_cli, "dictation_docs_paths", lambda: paths)
     monkeypatch.setattr(dictation_docs_adapters, "paths_document", fake_paths_document)
     monkeypatch.setattr(dictation_docs_adapters, "index_document", fake_index_document)
     monkeypatch.setattr(dictation_docs_adapters, "agents_doc", fake_agents_doc)

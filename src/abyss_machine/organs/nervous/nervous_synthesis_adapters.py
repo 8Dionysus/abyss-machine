@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import nervous_synthesis
-from . import typing_nervous_adapters
+from abyss_machine import typing_nervous_adapters
 
 
 RecordsReaderPort = Callable[[Path], tuple[list[dict[str, Any]], list[dict[str, Any]]]]

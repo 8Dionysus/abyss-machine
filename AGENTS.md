@@ -48,6 +48,10 @@ views rather than this inherited route card.
   `tools/` until a mechanic package owns them.
 - Use mechanics packages for durable host moves, not for miscellaneous notes.
 - Keep typing and nervous surfaces first-class, privacy-gated, and opt-in.
+- Put device, OS, desktop, sensor and trust code in the `src/abyss_machine`
+  core. Put reasoning, memory, AI-runtime, release and application code under
+  `src/abyss_machine/organs/<organ>/`, reached from the core only lazily; a new
+  core -> organ edge needs an entry in `test_organ_boundary.py`.
 
 ## Landing
 

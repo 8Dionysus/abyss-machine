@@ -107,7 +107,7 @@ def test_cli_dictation_validation_wrappers_bind_adapter(monkeypatch, tmp_path: P
         captured["write_kwargs"] = kwargs
         return []
 
-    monkeypatch.setattr(cli, "dictation_validation_paths", lambda: paths)
+    monkeypatch.setattr(cli.dictation_cli, "dictation_validation_paths", lambda: paths)
     monkeypatch.setattr(dictation_validation_adapters, "validation_checks", fake_validation_checks)
     monkeypatch.setattr(dictation_validation_adapters, "write_validation_latest", fake_write_latest)
 
@@ -148,7 +148,7 @@ def test_subsystem_validate_routes_dictation_checks_and_writes(monkeypatch, tmp_
     )
     monkeypatch.setattr(cli, "bridge_manifest", lambda: {"commands": {}})
     monkeypatch.setattr(
-        cli,
+        cli.dictation_cli,
         "dictation_validation_checks",
         lambda: [{"level": "ok", "key": "dictation_docs_index", "message": "ok"}],
     )
@@ -157,7 +157,7 @@ def test_subsystem_validate_routes_dictation_checks_and_writes(monkeypatch, tmp_
         captured["write_data"] = data
         return []
 
-    monkeypatch.setattr(cli, "write_dictation_validation_latest", fake_write)
+    monkeypatch.setattr(cli.dictation_cli, "write_dictation_validation_latest", fake_write)
 
     document = cli.subsystem_validate("dictation", strict=False, write_latest=True)
 

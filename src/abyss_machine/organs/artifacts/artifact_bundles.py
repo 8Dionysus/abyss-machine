@@ -28,7 +28,7 @@ except Exception:  # pragma: no cover - optional production verifier dependency.
     Ed25519PrivateKey = None  # type: ignore[assignment]
     Ed25519PublicKey = None  # type: ignore[assignment]
 
-from . import validation_contracts
+from abyss_machine import validation_contracts
 from . import artifact_subject_retention
 
 POLICY_REF = "manifests/artifact_signature_policy.manifest.json"

@@ -370,7 +370,7 @@ def test_cli_synthesis_build_uses_fixture_records_without_host_state(monkeypatch
         raise AssertionError(f"unexpected root {root}")
 
     monkeypatch.setattr(cli, "nervous_effective_privacy", lambda write_latest=False: {"global_pause": False})
-    monkeypatch.setattr(cli, "nervous_records_from_jsonl_root", fake_records_from_root)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_records_from_jsonl_root", fake_records_from_root)
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T12:00:00+00:00")
 
     data = cli.nervous_synthesis_build(scope="daily", date_value="2026-06-25", write_latest=False)
@@ -416,12 +416,12 @@ def test_cli_nervous_eval_run_delegates_document_shape_to_module(monkeypatch) ->
         return synthesis_validation
 
     monkeypatch.setattr(cli, "nervous_effective_privacy", lambda write_latest=False: {"global_pause": False})
-    monkeypatch.setattr(cli, "nervous_events_validate", fake_events_validate)
-    monkeypatch.setattr(cli, "nervous_episodes_validate", fake_episodes_validate)
-    monkeypatch.setattr(cli, "nervous_index_validate", fake_index_validate)
-    monkeypatch.setattr(cli, "nervous_recall_pack", fake_recall_pack)
-    monkeypatch.setattr(cli, "nervous_synthesis_build", fake_synthesis_build)
-    monkeypatch.setattr(cli, "nervous_synthesis_validate", fake_synthesis_validate)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_events_validate", fake_events_validate)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_episodes_validate", fake_episodes_validate)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_index_validate", fake_index_validate)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_recall_pack", fake_recall_pack)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_synthesis_build", fake_synthesis_build)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_synthesis_validate", fake_synthesis_validate)
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T12:00:00+00:00")
 
     data = cli.nervous_eval_run(write_latest=False)
@@ -456,7 +456,7 @@ def test_cli_nervous_eval_run_refuses_before_live_work_when_paused(monkeypatch) 
     monkeypatch.setattr(cli, "nervous_effective_privacy", lambda write_latest=False: {"global_pause": True})
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T12:00:00+00:00")
     monkeypatch.setattr(
-        cli,
+        cli.nervous_cli,
         "nervous_events_validate",
         lambda write_latest=False: (_ for _ in ()).throw(AssertionError("pause should refuse before eval dependencies")),
     )

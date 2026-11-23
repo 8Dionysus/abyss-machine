@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from . import nervous_index
+from abyss_machine.organs.nervous import nervous_index
 from . import typing_capture_contracts
 
 

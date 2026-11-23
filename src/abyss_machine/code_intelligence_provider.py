@@ -408,7 +408,7 @@ def read_provider_archive(path: str | Path) -> dict[str, Any]:
 
 
 def _artifact_tools() -> Any:
-    from . import artifact_bundles
+    from abyss_machine.organs.artifacts import artifact_bundles
 
     return artifact_bundles
 

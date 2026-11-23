@@ -165,7 +165,7 @@ def test_enter_uses_only_bounded_read_surfaces(monkeypatch, abyss_machine_module
         ),
     )
     monkeypatch.setattr(
-        abyss_machine_module,
+        abyss_machine_module.dictation_cli,
         "dictation_status",
         lambda: {"hotkeys": {"toggle": "fixture"}},
     )

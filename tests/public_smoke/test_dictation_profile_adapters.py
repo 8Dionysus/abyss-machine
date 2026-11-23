@@ -160,7 +160,7 @@ def test_cli_dictation_config_wrappers_bind_profile_adapter(monkeypatch, tmp_pat
         captured["save_config"] = config
         captured["save_kwargs"] = kwargs
 
-    monkeypatch.setattr(cli, "dictation_config_paths", lambda: paths)
+    monkeypatch.setattr(cli.dictation_cli, "dictation_config_paths", lambda: paths)
     monkeypatch.setattr(dictation_profile_adapters, "load_config", fake_load_config)
     monkeypatch.setattr(dictation_profile_adapters, "save_config", fake_save_config)
 
@@ -185,7 +185,7 @@ def test_cli_dictation_profile_selection_binds_profile_adapter(monkeypatch, tmp_
         captured.update(kwargs)
         return {"name": "quality"}, {"selected_profile": "quality"}
 
-    monkeypatch.setattr(cli, "dictation_config", lambda: config)
+    monkeypatch.setattr(cli.dictation_cli, "dictation_config", lambda: config)
     monkeypatch.setattr(dictation_profile_adapters, "select_profile", fake_select_profile)
 
     profile, selection = cli.dictation_profile("auto", str(tmp_path / "audio.wav"))

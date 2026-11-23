@@ -213,7 +213,7 @@ def test_cli_nervous_semantic_lifecycle_binds_live_adapter(monkeypatch, tmp_path
     monkeypatch.setattr(cli, "NERVOUS_SEMANTIC_MAINTAIN_LATEST_PATH", maintain_latest)
     monkeypatch.setattr(cli, "NERVOUS_SEMANTIC_MAINTAIN_ROOT", maintain_root)
     monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_DB_PATH", source_db)
-    monkeypatch.setattr(cli, "nervous_semantic_config", lambda: {"embedding": {"max_input_chars": 512}})
+    monkeypatch.setattr(cli.nervous_cli, "nervous_semantic_config", lambda: {"embedding": {"max_input_chars": 512}})
     monkeypatch.setattr(cli.nervous_semantic_adapters, "connect_db", fake_connect)
     monkeypatch.setattr(cli.nervous_semantic_adapters, "initialize_db", fake_initialize)
     monkeypatch.setattr(cli.nervous_semantic_adapters, "semantic_lock", fake_lock)
@@ -368,7 +368,7 @@ def test_cli_nervous_semantic_maintain_binds_orchestration_adapter(monkeypatch, 
     monkeypatch.setattr(cli, "NERVOUS_SEMANTIC_MAINTAIN_LATEST_PATH", tmp_path / "maintain" / "latest.json")
     monkeypatch.setattr(cli, "NERVOUS_SEMANTIC_MAINTAIN_ROOT", tmp_path / "maintain")
     monkeypatch.setattr(cli, "NERVOUS_SEMANTIC_INDEX_LATEST_PATH", tmp_path / "semantic" / "latest.json")
-    monkeypatch.setattr(cli, "nervous_semantic_config", lambda: {"maintain": {"min_delta_chunks": 7}})
+    monkeypatch.setattr(cli.nervous_cli, "nervous_semantic_config", lambda: {"maintain": {"min_delta_chunks": 7}})
 
     def fake_adapter(**kwargs: object) -> dict[str, object]:
         captured.update(kwargs)
@@ -569,9 +569,9 @@ def test_cli_nervous_semantic_search_binds_adapter_ports(monkeypatch, tmp_path: 
     captured: dict[str, object] = {}
 
     monkeypatch.setattr(cli, "NERVOUS_SEMANTIC_INDEX_DB_PATH", tmp_path / "semantic.db")
-    monkeypatch.setattr(cli, "nervous_semantic_config", lambda: {"embedding": {"model_dir": "/models/embed"}})
+    monkeypatch.setattr(cli.nervous_cli, "nervous_semantic_config", lambda: {"embedding": {"model_dir": "/models/embed"}})
     monkeypatch.setattr(cli, "nervous_effective_privacy", lambda write_latest=False: {"global_pause": False, "write_latest": write_latest})
-    monkeypatch.setattr(cli, "nervous_semantic_counts", lambda: {"vectors": 4})
+    monkeypatch.setattr(cli.nervous_cli, "nervous_semantic_counts", lambda: {"vectors": 4})
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-07-07T03:00:00+00:00")
 
     def fake_adapter(**kwargs: object) -> dict[str, object]:
@@ -725,10 +725,10 @@ def test_cli_nervous_semantic_eval_binds_adapter_ports(monkeypatch, tmp_path: Pa
 
     monkeypatch.setattr(cli, "NERVOUS_SEMANTIC_EVAL_LATEST_PATH", tmp_path / "eval" / "latest.json")
     monkeypatch.setattr(cli, "NERVOUS_SEMANTIC_EVAL_ROOT", tmp_path / "eval")
-    monkeypatch.setattr(cli, "nervous_semantic_config", lambda: {"embedding": {"batch_size": 3}})
-    monkeypatch.setattr(cli, "nervous_semantic_status", lambda write_latest=False: {"ready": True, "write_latest": write_latest})
+    monkeypatch.setattr(cli.nervous_cli, "nervous_semantic_config", lambda: {"embedding": {"batch_size": 3}})
+    monkeypatch.setattr(cli.nervous_cli, "nervous_semantic_status", lambda write_latest=False: {"ready": True, "write_latest": write_latest})
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-07-07T02:00:00+00:00")
-    monkeypatch.setattr(cli, "ai_policy_gate_for_class", lambda cls, action, force=False: {"ok": True, "class": cls, "action": action, "force": force})
+    monkeypatch.setattr(cli.ai_cli, "ai_policy_gate_for_class", lambda cls, action, force=False: {"ok": True, "class": cls, "action": action, "force": force})
 
     def fake_adapter(**kwargs: object) -> dict[str, object]:
         captured.update(kwargs)
@@ -1201,10 +1201,10 @@ def test_cli_nervous_semantic_embed_texts_binds_live_adapter(monkeypatch, tmp_pa
     model_dir = tmp_path / "model"
     cache_dir = tmp_path / "cache"
 
-    monkeypatch.setattr(cli, "nervous_semantic_model_paths", lambda embedding: (model_dir, "CPU", cache_dir, None))
-    monkeypatch.setattr(cli, "ai_config", lambda: {"openvino": {"python": "/unused"}})
+    monkeypatch.setattr(cli.nervous_cli, "nervous_semantic_model_paths", lambda embedding: (model_dir, "CPU", cache_dir, None))
+    monkeypatch.setattr(cli.ai_cli, "ai_config", lambda: {"openvino": {"python": "/unused"}})
     monkeypatch.setattr(cli.shutil, "which", lambda name: "/usr/bin/abyss-openvino-python" if name == "abyss-openvino-python" else None)
-    monkeypatch.setattr(cli, "ai_subprocess_env", lambda: {"ENV": "1"})
+    monkeypatch.setattr(cli.ai_cli, "ai_subprocess_env", lambda: {"ENV": "1"})
     monkeypatch.setattr(cli, "ai_resource_snapshot", lambda: {"snapshot": True})
     monkeypatch.setattr(
         cli,
@@ -1243,10 +1243,10 @@ def test_cli_nervous_semantic_status_does_not_create_default_cache_dir(monkeypat
         raise AssertionError("semantic status must not create the OpenVINO cache directory")
 
     monkeypatch.setattr(cli, "AI_OPENVINO_CACHE_ROOT", cache_root)
-    monkeypatch.setattr(cli, "ai_openvino_cache_dir", forbidden_cache_dir)
-    monkeypatch.setattr(cli, "nervous_semantic_config", lambda: {"enabled": True, "embedding": {"model_dir": str(model_dir)}})
-    monkeypatch.setattr(cli, "nervous_semantic_counts", lambda: {"db_exists": False, "vectors": 0, "meta": {}})
-    monkeypatch.setattr(cli, "nervous_index_db_counts", lambda: {"chunks": 0, "meta": {}})
+    monkeypatch.setattr(cli.ai_cli, "ai_openvino_cache_dir", forbidden_cache_dir)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_semantic_config", lambda: {"enabled": True, "embedding": {"model_dir": str(model_dir)}})
+    monkeypatch.setattr(cli.nervous_cli, "nervous_semantic_counts", lambda: {"db_exists": False, "vectors": 0, "meta": {}})
+    monkeypatch.setattr(cli.nervous_cli, "nervous_index_db_counts", lambda: {"chunks": 0, "meta": {}})
     monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_DB_PATH", tmp_path / "source.db")
     monkeypatch.setattr(cli, "NERVOUS_SEMANTIC_INDEX_DB_PATH", tmp_path / "semantic.db")
     monkeypatch.setattr(cli, "NERVOUS_SEMANTIC_INDEX_ROOT", tmp_path / "semantic")
@@ -1263,9 +1263,9 @@ def test_cli_nervous_semantic_build_global_pause_does_not_resolve_cache(monkeypa
     def forbidden_model_paths(_embedding: dict[str, object]):
         raise AssertionError("global_pause refusal must not resolve model/cache paths")
 
-    monkeypatch.setattr(cli, "nervous_semantic_config", lambda: {"enabled": True, "embedding": {"model_dir": "/missing/model"}})
+    monkeypatch.setattr(cli.nervous_cli, "nervous_semantic_config", lambda: {"enabled": True, "embedding": {"model_dir": "/missing/model"}})
     monkeypatch.setattr(cli, "nervous_effective_privacy", lambda write_latest=False: {"global_pause": True})
-    monkeypatch.setattr(cli, "nervous_semantic_model_paths", forbidden_model_paths)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_semantic_model_paths", forbidden_model_paths)
 
     data = cli.nervous_semantic_build(write_latest=False)
 
@@ -1278,9 +1278,9 @@ def test_cli_nervous_semantic_build_disabled_does_not_resolve_cache(monkeypatch)
     def forbidden_model_paths(_embedding: dict[str, object]):
         raise AssertionError("disabled semantic build must not resolve model/cache paths")
 
-    monkeypatch.setattr(cli, "nervous_semantic_config", lambda: {"enabled": False, "embedding": {"model_dir": "/missing/model"}})
+    monkeypatch.setattr(cli.nervous_cli, "nervous_semantic_config", lambda: {"enabled": False, "embedding": {"model_dir": "/missing/model"}})
     monkeypatch.setattr(cli, "nervous_effective_privacy", lambda write_latest=False: {"global_pause": False})
-    monkeypatch.setattr(cli, "nervous_semantic_model_paths", forbidden_model_paths)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_semantic_model_paths", forbidden_model_paths)
 
     data = cli.nervous_semantic_build(write_latest=False)
 
@@ -1305,21 +1305,21 @@ def test_cli_nervous_semantic_build_binds_document_finalize_adapter(monkeypatch,
         captured.update(kwargs)
         return {**data, "ok": True, "from_finalize": True}
 
-    monkeypatch.setattr(cli, "nervous_change_id", lambda _kind: "semantic-run")
+    monkeypatch.setattr(cli.nervous_cli, "nervous_change_id", lambda _kind: "semantic-run")
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-07-07T01:00:00+00:00")
-    monkeypatch.setattr(cli, "nervous_semantic_config", lambda: {"enabled": True, "backend": "sqlite_float32_sidecar", "embedding": {"model_dir": str(model_dir), "batch_size": 16}})
+    monkeypatch.setattr(cli.nervous_cli, "nervous_semantic_config", lambda: {"enabled": True, "backend": "sqlite_float32_sidecar", "embedding": {"model_dir": str(model_dir), "batch_size": 16}})
     monkeypatch.setattr(cli, "nervous_effective_privacy", lambda write_latest=False: {"global_pause": False})
-    monkeypatch.setattr(cli, "nervous_semantic_model_paths", lambda embedding: (model_dir, str(embedding.get("device") or "CPU"), cache_dir, None))
-    monkeypatch.setattr(cli, "artifact_backup_state", lambda _path: {"state": "before"})
-    monkeypatch.setattr(cli, "artifact_path_stats", lambda _path, _state: {"exists": True, "mtime": 1})
-    monkeypatch.setattr(cli, "nervous_semantic_source_chunks", lambda max_chunks=None: (chunks, None))
-    monkeypatch.setattr(cli, "nervous_index_db_counts", lambda: {"chunks": 1, "meta": {"run_id": "idx-run", "built_at": "2026-07-07T00:59:00+00:00"}})
-    monkeypatch.setattr(cli, "nervous_semantic_lock", fake_lock)
-    monkeypatch.setattr(cli, "nervous_index_lock_active", lambda: False)
-    monkeypatch.setattr(cli, "nervous_semantic_connect", lambda create=False: fake_conn)
-    monkeypatch.setattr(cli, "nervous_semantic_initialize", lambda _conn: None)
-    monkeypatch.setattr(cli, "nervous_semantic_existing_hashes", lambda _conn: {})
-    monkeypatch.setattr(cli, "nervous_semantic_existing_vectors_by_hash", lambda _conn: {})
+    monkeypatch.setattr(cli.nervous_cli, "nervous_semantic_model_paths", lambda embedding: (model_dir, str(embedding.get("device") or "CPU"), cache_dir, None))
+    monkeypatch.setattr(cli.artifacts_cli, "artifact_backup_state", lambda _path: {"state": "before"})
+    monkeypatch.setattr(cli.artifacts_cli, "artifact_path_stats", lambda _path, _state: {"exists": True, "mtime": 1})
+    monkeypatch.setattr(cli.nervous_cli, "nervous_semantic_source_chunks", lambda max_chunks=None: (chunks, None))
+    monkeypatch.setattr(cli.nervous_cli, "nervous_index_db_counts", lambda: {"chunks": 1, "meta": {"run_id": "idx-run", "built_at": "2026-07-07T00:59:00+00:00"}})
+    monkeypatch.setattr(cli.nervous_cli, "nervous_semantic_lock", fake_lock)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_index_lock_active", lambda: False)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_semantic_connect", lambda create=False: fake_conn)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_semantic_initialize", lambda _conn: None)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_semantic_existing_hashes", lambda _conn: {})
+    monkeypatch.setattr(cli.nervous_cli, "nervous_semantic_existing_vectors_by_hash", lambda _conn: {})
     monkeypatch.setattr(
         nervous_semantic_adapters,
         "semantic_build_pending_plan",

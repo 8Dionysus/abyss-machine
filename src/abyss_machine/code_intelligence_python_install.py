@@ -13,7 +13,7 @@ import shutil
 import stat
 from typing import Any, Iterator
 
-from . import artifact_bundles
+from abyss_machine.organs.artifacts import artifact_bundles
 from . import code_intelligence_python_provider as archive_tools
 from .code_intelligence_provider import (
     ARTIFACT_CLASS,

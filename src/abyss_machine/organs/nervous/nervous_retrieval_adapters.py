@@ -8,7 +8,7 @@ from typing import Any, Callable, Mapping
 from . import nervous_index
 from . import nervous_recall
 from . import nervous_rerank
-from . import typing_nervous_adapters
+from abyss_machine import typing_nervous_adapters
 
 
 SearchPort = Callable[..., Mapping[str, Any]]

@@ -1031,8 +1031,8 @@ def test_cli_typing_nervous_processing_avoids_live_index_scan_when_latest_proves
 
     monkeypatch.setattr(cli, "nervous_source_lookup", lambda source_id: source)
     monkeypatch.setattr(cli, "load_json_document", fake_load_json_document)
-    monkeypatch.setattr(cli, "nervous_index_db_counts_bounded", forbidden_live_read)
-    monkeypatch.setattr(cli, "nervous_index_source_present", forbidden_live_read)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_index_db_counts_bounded", forbidden_live_read)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_index_source_present", forbidden_live_read)
 
     status = cli.typing_nervous_processing_status()
 
@@ -1094,7 +1094,7 @@ def test_cli_typing_nervous_processing_status_uses_module_document(monkeypatch) 
 
     monkeypatch.setattr(cli, "nervous_source_lookup", lambda source_id: source)
     monkeypatch.setattr(cli, "load_json_document", fake_load_json_document)
-    monkeypatch.setattr(cli, "nervous_index_db_counts", lambda: {"fts_chunks": 0})
+    monkeypatch.setattr(cli.nervous_cli, "nervous_index_db_counts", lambda: {"fts_chunks": 0})
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-20T05:02:00+00:00")
 
     assert cli.typing_nervous_processing_status() == typing_nervous_processing_status_document(

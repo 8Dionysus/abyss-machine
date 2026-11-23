@@ -419,12 +419,12 @@ def test_cli_eval_run_uses_adapter_orchestration_and_routes_persistence(monkeypa
         return {"ok": True, "schema": "fixture_eval"}
 
     monkeypatch.setattr(cli, "nervous_effective_privacy", lambda write_latest=False: {"global_pause": False})
-    monkeypatch.setattr(cli, "nervous_events_validate", lambda write_latest=False: calls.append(("events", write_latest)) or docs["events"])
-    monkeypatch.setattr(cli, "nervous_episodes_validate", lambda write_latest=False: calls.append(("episodes", write_latest)) or docs["episodes"])
-    monkeypatch.setattr(cli, "nervous_index_validate", lambda write_latest=False: calls.append(("index", write_latest)) or docs["index"])
-    monkeypatch.setattr(cli, "nervous_recall_pack", lambda query, limit, write_latest=True: calls.append(("recall", query, limit, write_latest)) or docs["recall"])
-    monkeypatch.setattr(cli, "nervous_synthesis_build", lambda scope="daily", write_latest=True: calls.append(("synthesis", scope, write_latest)) or docs["synthesis"])
-    monkeypatch.setattr(cli, "nervous_synthesis_validate", lambda write_latest=False: calls.append(("synthesis_validate", write_latest)) or docs["synthesis_validate"])
+    monkeypatch.setattr(cli.nervous_cli, "nervous_events_validate", lambda write_latest=False: calls.append(("events", write_latest)) or docs["events"])
+    monkeypatch.setattr(cli.nervous_cli, "nervous_episodes_validate", lambda write_latest=False: calls.append(("episodes", write_latest)) or docs["episodes"])
+    monkeypatch.setattr(cli.nervous_cli, "nervous_index_validate", lambda write_latest=False: calls.append(("index", write_latest)) or docs["index"])
+    monkeypatch.setattr(cli.nervous_cli, "nervous_recall_pack", lambda query, limit, write_latest=True: calls.append(("recall", query, limit, write_latest)) or docs["recall"])
+    monkeypatch.setattr(cli.nervous_cli, "nervous_synthesis_build", lambda scope="daily", write_latest=True: calls.append(("synthesis", scope, write_latest)) or docs["synthesis"])
+    monkeypatch.setattr(cli.nervous_cli, "nervous_synthesis_validate", lambda write_latest=False: calls.append(("synthesis_validate", write_latest)) or docs["synthesis_validate"])
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T12:00:00+00:00")
     monkeypatch.setattr(cli.nervous_synthesis_adapters, "build_eval_run", fake_build_eval_run)
 

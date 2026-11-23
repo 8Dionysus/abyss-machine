@@ -295,8 +295,8 @@ def test_rerank_eval_cli_delegates_document_to_module(monkeypatch) -> None:
         captured["kwargs"] = kwargs
         return search
 
-    monkeypatch.setattr(cli, "nervous_rerank_profile", fake_profile)
-    monkeypatch.setattr(cli, "nervous_rerank_search", fake_search)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_rerank_profile", fake_profile)
+    monkeypatch.setattr(cli.nervous_cli, "nervous_rerank_search", fake_search)
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-26T12:00:00+00:00")
 
     result = cli.nervous_rerank_eval(force_policy=True, write_latest=False)

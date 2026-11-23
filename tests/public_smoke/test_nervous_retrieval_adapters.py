@@ -301,10 +301,10 @@ def test_cli_rerank_search_binds_retrieval_adapter(monkeypatch: Any) -> None:
         return {"ok": True, "schema": "abyss_machine_nervous_rerank_v1"}
 
     monkeypatch.setattr(cli.nervous_retrieval_adapters, "hybrid_rerank_search", fake_hybrid_rerank_search)
-    monkeypatch.setattr(cli, "nervous_index_config", lambda: {"search": {"max_limit": 50}})
-    monkeypatch.setattr(cli, "nervous_rerank_profile", lambda config=None: {"id": "test", "weights": {}, "weight_total": 1.0})
-    monkeypatch.setattr(cli, "nervous_neural_rerank_config", lambda config=None: {"enabled": False})
-    monkeypatch.setattr(cli, "nervous_semantic_config", lambda: {"maintain": {}})
+    monkeypatch.setattr(cli.nervous_cli, "nervous_index_config", lambda: {"search": {"max_limit": 50}})
+    monkeypatch.setattr(cli.nervous_cli, "nervous_rerank_profile", lambda config=None: {"id": "test", "weights": {}, "weight_total": 1.0})
+    monkeypatch.setattr(cli.nervous_cli, "nervous_neural_rerank_config", lambda config=None: {"enabled": False})
+    monkeypatch.setattr(cli.nervous_cli, "nervous_semantic_config", lambda: {"maintain": {}})
     monkeypatch.setattr(cli, "now_iso", lambda: GENERATED_AT)
 
     data = cli.nervous_rerank_search("thermal", limit=2, source="facts", use_semantic=False, write_latest=False)
@@ -333,7 +333,7 @@ def test_cli_rerank_eval_binds_retrieval_adapter(monkeypatch: Any, tmp_path: Pat
     monkeypatch.setattr(cli.nervous_retrieval_adapters, "rerank_eval_document", fake_rerank_eval_document)
     monkeypatch.setattr(cli, "NERVOUS_RERANK_EVAL_LATEST_PATH", tmp_path / "rerank-eval" / "latest.json")
     monkeypatch.setattr(cli, "NERVOUS_RERANK_EVAL_ROOT", tmp_path / "rerank-eval")
-    monkeypatch.setattr(cli, "nervous_rerank_profile", lambda: {"id": "test", "weights": {}, "weight_total": 1.0})
+    monkeypatch.setattr(cli.nervous_cli, "nervous_rerank_profile", lambda: {"id": "test", "weights": {}, "weight_total": 1.0})
     monkeypatch.setattr(cli, "now_iso", lambda: GENERATED_AT)
 
     data = cli.nervous_rerank_eval(force_policy=True, write_latest=False)

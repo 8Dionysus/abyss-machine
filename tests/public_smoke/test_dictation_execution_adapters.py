@@ -166,8 +166,8 @@ def test_cli_dictation_audio_doctor_binds_live_adapter(monkeypatch, tmp_path: Pa
         captured.update(kwargs)
         return {"ok": True, "schema": "abyss_machine_dictation_audio_doctor_v1"}
 
-    monkeypatch.setattr(cli, "dictation_audio_paths", lambda: paths)
-    monkeypatch.setattr(cli, "dictation_config", lambda: {"calibration": {"source": "test"}})
+    monkeypatch.setattr(cli.dictation_cli, "dictation_audio_paths", lambda: paths)
+    monkeypatch.setattr(cli.dictation_cli, "dictation_config", lambda: {"calibration": {"source": "test"}})
     monkeypatch.setattr(dictation_execution_adapters, "audio_doctor", fake_audio_doctor)
 
     data = cli.dictation_audio_doctor(7)
@@ -287,8 +287,8 @@ def test_cli_dictation_calibrate_mic_binds_live_adapter(monkeypatch, tmp_path: P
         captured.update(kwargs)
         return {"ok": True, "schema": "abyss_machine_dictation_mic_calibration_v1"}
 
-    monkeypatch.setattr(cli, "dictation_calibration_paths", lambda: paths)
-    monkeypatch.setattr(cli, "dictation_config", lambda: {"runtime": {"test": True}})
+    monkeypatch.setattr(cli.dictation_cli, "dictation_calibration_paths", lambda: paths)
+    monkeypatch.setattr(cli.dictation_cli, "dictation_config", lambda: {"runtime": {"test": True}})
     monkeypatch.setattr(dictation_execution_adapters, "calibrate_mic", fake_calibrate_mic)
 
     data = cli.dictation_calibrate_mic(seconds=7, from_recent=True, limit=3, apply=True)
@@ -348,7 +348,7 @@ def test_cli_dictation_journal_policy_binds_live_config(monkeypatch) -> None:
         calls += 1
         return config
 
-    monkeypatch.setattr(cli, "dictation_config", fake_config)
+    monkeypatch.setattr(cli.dictation_cli, "dictation_config", fake_config)
 
     assert cli.dictation_journal_enabled() is False
     assert cli.dictation_journal_include_failed() is True
@@ -531,9 +531,9 @@ def test_cli_dictation_journal_write_binds_live_adapter(monkeypatch, tmp_path: P
         captured.update(kwargs)
         return {"ok": True, "schema": "abyss_machine_dictation_journal_write_v1"}
 
-    monkeypatch.setattr(cli, "dictation_journal_paths", lambda: paths)
-    monkeypatch.setattr(cli, "dictation_journal_enabled", lambda: True)
-    monkeypatch.setattr(cli, "dictation_journal_include_failed", lambda: False)
+    monkeypatch.setattr(cli.dictation_cli, "dictation_journal_paths", lambda: paths)
+    monkeypatch.setattr(cli.dictation_cli, "dictation_journal_enabled", lambda: True)
+    monkeypatch.setattr(cli.dictation_cli, "dictation_journal_include_failed", lambda: False)
     monkeypatch.setattr(dictation_execution_adapters, "journal_write", fake_journal_write)
 
     data = cli.dictation_journal_write(result)
@@ -894,12 +894,12 @@ def test_cli_dictation_recording_lifecycle_binds_live_adapter(monkeypatch, tmp_p
     started: dict[str, object] = {}
     stopped: dict[str, object] = {}
 
-    monkeypatch.setattr(cli, "load_dictation_recording", lambda: None)
-    monkeypatch.setattr(cli, "dictation_recording_paths", lambda: paths)
-    monkeypatch.setattr(cli, "requested_dictation_profile_name", lambda _profile_name: "quality")
-    monkeypatch.setattr(cli, "dictation_max_seconds", lambda: 180)
+    monkeypatch.setattr(cli.dictation_cli, "load_dictation_recording", lambda: None)
+    monkeypatch.setattr(cli.dictation_cli, "dictation_recording_paths", lambda: paths)
+    monkeypatch.setattr(cli.dictation_cli, "requested_dictation_profile_name", lambda _profile_name: "quality")
+    monkeypatch.setattr(cli.dictation_cli, "dictation_max_seconds", lambda: 180)
     monkeypatch.setattr(cli, "command_exists", lambda name: name == "timeout")
-    monkeypatch.setattr(cli, "dictation_status", lambda: {"recording": {"pid": 4321}})
+    monkeypatch.setattr(cli.dictation_cli, "dictation_status", lambda: {"recording": {"pid": 4321}})
 
     def fake_start_recording(**kwargs: object) -> dict[str, object]:
         started.update(kwargs)
@@ -935,8 +935,8 @@ def test_cli_dictation_toggle_binds_debounce_adapter(monkeypatch) -> None:
     active = {"pid": 777, "audio": "/tmp/dictation.wav"}
     captured: dict[str, object] = {}
 
-    monkeypatch.setattr(cli, "load_dictation_recording", lambda: active)
-    monkeypatch.setattr(cli, "recording_age_seconds", lambda state: 0.1)
+    monkeypatch.setattr(cli.dictation_cli, "load_dictation_recording", lambda: active)
+    monkeypatch.setattr(cli.dictation_cli, "recording_age_seconds", lambda state: 0.1)
 
     def fake_toggle_debounce_result(active_arg: object, **kwargs: object) -> dict[str, object]:
         captured["active"] = active_arg
@@ -944,7 +944,7 @@ def test_cli_dictation_toggle_binds_debounce_adapter(monkeypatch) -> None:
         return {"schema": "abyss_machine_dictation_toggle_v1", "action": "debounce", "ok": True}
 
     monkeypatch.setattr(dictation_execution_adapters, "toggle_debounce_result", fake_toggle_debounce_result)
-    monkeypatch.setattr(cli, "_dictation_stop_unlocked", lambda _active: (_ for _ in ()).throw(AssertionError("stop should not run")))
+    monkeypatch.setattr(cli.dictation_cli, "_dictation_stop_unlocked", lambda _active: (_ for _ in ()).throw(AssertionError("stop should not run")))
 
     data = cli._dictation_toggle_unlocked("quality", insert=True)
 
@@ -1144,9 +1144,9 @@ def test_cli_dictation_transcribe_binds_live_adapter(monkeypatch, tmp_path: Path
     selection = {"selected_profile": "quality"}
     captured: dict[str, object] = {}
 
-    monkeypatch.setattr(cli, "dictation_profile", lambda profile_name, audio: (profile, selection))
-    monkeypatch.setattr(cli, "dictation_transcription_paths", lambda: paths)
-    monkeypatch.setattr(cli, "postprocess_transcript", lambda data, bound_profile: {**data, "postprocessed_with": bound_profile["name"]})
+    monkeypatch.setattr(cli.dictation_cli, "dictation_profile", lambda profile_name, audio: (profile, selection))
+    monkeypatch.setattr(cli.dictation_cli, "dictation_transcription_paths", lambda: paths)
+    monkeypatch.setattr(cli.dictation_cli, "postprocess_transcript", lambda data, bound_profile: {**data, "postprocessed_with": bound_profile["name"]})
     monkeypatch.setenv("ABYSS_DICTATION_SERVER", "0")
 
     def fake_adapter(audio: str, adapter_profile: dict[str, object], adapter_selection: dict[str, object], **kwargs: object) -> dict[str, object]:

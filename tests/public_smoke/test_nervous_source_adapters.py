@@ -274,7 +274,7 @@ def test_cli_nervous_source_policy_binds_source_adapter(monkeypatch) -> None:
         return {"schema": "set-result", "source": source_id, "enabled": enabled}
 
     monkeypatch.setattr(cli, "now_iso", lambda: READ_AT)
-    monkeypatch.setattr(cli, "nervous_change_id", lambda prefix: f"{prefix}-change-1")
+    monkeypatch.setattr(cli.nervous_cli, "nervous_change_id", lambda prefix: f"{prefix}-change-1")
     monkeypatch.setattr(cli.nervous_source_adapters, "config_document_from_path", fake_config_document_from_path)
     monkeypatch.setattr(cli.nervous_source_adapters, "write_latest", fake_write_latest)
     monkeypatch.setattr(cli.nervous_source_adapters, "state_document_from_path", fake_state_document_from_path)

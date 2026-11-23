@@ -341,7 +341,7 @@ def test_candidate_refresh_propagates_owner_adapter_invalid_json(monkeypatch) ->
     monkeypatch.setattr(cli.storage_candidate_adapters, "artifact_specs", lambda snapshot: [])
     monkeypatch.setattr(cli.storage_candidate_adapters, "huggingface_specs", lambda root: [])
     monkeypatch.setattr(cli.storage_candidate_adapters, "git_specs", lambda roots: [])
-    monkeypatch.setattr(cli, "artifacts_snapshot", lambda **kwargs: {"ok": True, "records": []})
+    monkeypatch.setattr(cli.artifacts_cli, "artifacts_snapshot", lambda **kwargs: {"ok": True, "records": []})
     monkeypatch.setattr(cli, "command_exists", lambda name: False)
     monkeypatch.setattr(
         cli,
@@ -377,7 +377,7 @@ def test_candidate_discovery_rejects_owner_adapter_error_document(monkeypatch) -
         patch.setattr(cli, "command_exists", lambda name: False)
 
     patch_empty_producers(monkeypatch)
-    monkeypatch.setattr(cli, "artifacts_snapshot", lambda **kwargs: {"ok": True, "records": []})
+    monkeypatch.setattr(cli.artifacts_cli, "artifacts_snapshot", lambda **kwargs: {"ok": True, "records": []})
     monkeypatch.setattr(
         cli,
         "storage_candidate_owner_aoa_document",
@@ -406,7 +406,7 @@ def test_candidate_discovery_reports_deferred_aoa_without_erasing_other_producer
         patch.setattr(cli, "command_exists", lambda name: False)
 
     patch_empty_producers(monkeypatch)
-    monkeypatch.setattr(cli, "artifacts_snapshot", lambda **kwargs: {"ok": True, "records": []})
+    monkeypatch.setattr(cli.artifacts_cli, "artifacts_snapshot", lambda **kwargs: {"ok": True, "records": []})
     monkeypatch.setattr(
         cli,
         "storage_candidate_owner_aoa_document",
@@ -447,7 +447,7 @@ def test_candidate_discovery_rejects_required_producer_failures(monkeypatch) -> 
 
     with monkeypatch.context() as patch:
         patch_empty_producers(patch)
-        patch.setattr(cli, "artifacts_snapshot", lambda **kwargs: {"ok": False, "error": "snapshot producer failed"})
+        patch.setattr(cli.artifacts_cli, "artifacts_snapshot", lambda **kwargs: {"ok": False, "error": "snapshot producer failed"})
         try:
             cli.storage_candidate_discover_specs()
         except RuntimeError as exc:
@@ -458,7 +458,7 @@ def test_candidate_discovery_rejects_required_producer_failures(monkeypatch) -> 
 
     with monkeypatch.context() as patch:
         patch_empty_producers(patch)
-        patch.setattr(cli, "artifacts_snapshot", lambda **kwargs: {"ok": True, "records": []})
+        patch.setattr(cli.artifacts_cli, "artifacts_snapshot", lambda **kwargs: {"ok": True, "records": []})
         patch.setattr(cli, "command_exists", lambda name: name == "podman")
         patch.setattr(cli, "run", lambda *args, **kwargs: {"ok": False, "stderr": "podman discovery failed"})
         try:
@@ -1514,7 +1514,7 @@ def test_storage_monitor_defers_deep_candidate_work_to_dedicated_route(monkeypat
         "storage_candidate_policy",
         lambda: {"deep_max_age_seconds": 172800},
     )
-    monkeypatch.setattr(cli, "artifacts_snapshot", remember("artifacts", {
+    monkeypatch.setattr(cli.artifacts_cli, "artifacts_snapshot", remember("artifacts", {
         "ok": True,
         "summary": {
             "records": 0,
