@@ -1127,6 +1127,11 @@ def rapl_smoothing_apply_document(
     }
     if state_error:
         data["write_errors"] = [state_error]
+        if not (write_result and write_result.get("ok")):
+            # Nothing changed on the hardware and the next tick will not remember this
+            # sample (e.g. a non-root caller), so publishing it would leave a phantom
+            # history row. A successful PL1 write is still recorded as evidence.
+            data["write_skipped"] = "state_write_failed"
     return data
 
 

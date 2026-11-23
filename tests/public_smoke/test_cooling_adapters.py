@@ -238,6 +238,57 @@ def test_rapl_smoothing_apply_engages_cap_with_fake_ports() -> None:
     assert saved[0][1] == "test"
 
 
+def _rapl_engage_with_failed_state_write(write_result: dict[str, Any]) -> dict[str, Any]:
+    denied = {"path": "/fake/state.json", "error": "[Errno 13] Permission denied"}
+    return cooling_adapters.rapl_smoothing_apply_document(
+        "set:performance",
+        schema_prefix="abyss_machine",
+        version="test",
+        now_iso=lambda: "2026-06-29T12:00:00Z",
+        now_epoch=lambda: 110.0,
+        config_port=lambda: {
+            "enabled": True,
+            "apply_modes": ["performance"],
+            "normal_pl1_uw": 35000000,
+            "cap_pl1_uw": 28000000,
+            "engage_temperature_c": 100.0,
+            "engage_package_throttle_per_s": 100.0,
+            "engage_sample_count": 1,
+            "min_sample_seconds": 5.0,
+            "max_sample_seconds": 60.0,
+        },
+        state_port=lambda: {"active": False, "last_sample_epoch": 100.0, "last_package_throttle_count": 100},
+        save_state_port=lambda state, updated_by: dict(denied),
+        fan_status_port=lambda: {"fan_mode": 4},
+        mode_state_port=lambda: {"selected_mode": "performance"},
+        battery_summary_port=lambda: {"ac_online": True},
+        target_profile_port=lambda selected, ac_online: ("performance", "performance", None),
+        rapl_status_port=lambda: {"available": True, "pl1_uw": 35000000},
+        package_throttle_port=lambda: 1300,
+        temperature_summary_port=lambda: {"class": "hot", "temperature_c_max": 106.0},
+        write_rapl_port=lambda rapl, target: dict(write_result),
+        paths_refs={"root": "/fake/rapl", "latest": "/fake/latest.json", "state": "/fake/state.json"},
+    )
+
+
+def test_rapl_smoothing_apply_skips_history_when_state_and_pl1_writes_both_fail() -> None:
+    data = _rapl_engage_with_failed_state_write({"ok": False, "permission_required": True})
+
+    assert data["action"] == "engage_cap_failed"
+    assert data["ok"] is False
+    assert data["write_skipped"] == "state_write_failed"
+    assert data["write_errors"][0]["path"] == "/fake/state.json"
+
+
+def test_rapl_smoothing_apply_keeps_history_for_a_pl1_write_despite_state_failure() -> None:
+    data = _rapl_engage_with_failed_state_write({"ok": True, "target_pl1_uw": 28000000, "changed": True})
+
+    assert data["action"] == "engage_cap"
+    assert data["ok"] is False
+    assert "write_skipped" not in data
+    assert data["write_errors"][0]["path"] == "/fake/state.json"
+
+
 def test_rapl_smoothing_apply_restores_active_cap_when_not_applicable() -> None:
     writes: list[int] = []
     saved: list[dict[str, Any]] = []

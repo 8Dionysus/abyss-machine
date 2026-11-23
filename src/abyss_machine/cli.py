@@ -3852,10 +3852,14 @@ def cooling_fan_boost_decide(profile: str, updated_by: str = "auto") -> dict[str
         "updated_by": updated_by,
         "state": new_state,
     }
-    writes = [
-        safe_atomic_write_json(COOLING_FAN_BOOST_STATE_PATH, state_doc, 0o664),
-        safe_atomic_write_json(COOLING_FAN_BOOST_LATEST_PATH, data, 0o664),
-    ]
+    state_error = safe_atomic_write_json(COOLING_FAN_BOOST_STATE_PATH, state_doc, 0o664)
+    if state_error:
+        # The next tick will not remember this sample (e.g. a non-root `mode set`
+        # cannot write the root-owned state dir), so latest/jsonl must not claim it.
+        data["write_skipped"] = "state_write_failed"
+        data["write_errors"] = [state_error]
+        return data
+    writes = [safe_atomic_write_json(COOLING_FAN_BOOST_LATEST_PATH, data, 0o664)]
     if decision.get("action") not in {"disabled", "not_applicable"}:
         writes.append(safe_append_jsonl(ai_daily_jsonl_path(COOLING_FAN_BOOST_ROOT), data, 0o664))
     errors = [error for error in writes if error]
