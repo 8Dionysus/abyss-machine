@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 25413842,
+  "allowed_tracked_bytes": 31076190,
+  "approved_by": "repository-owner",
+  "base_ref": "2e6027ffd1d8d19ca6efb5c5df74371c6fa8e05e",
+  "changed_generated_bytes": 25413842,
+  "changed_generated_files": 330,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "d25df623f39b8bf95867c0d4d8608a4767a957870545be05d1fb3431a853e3b3",
+  "reason": "Refresh owner evidence for cooling state-gated history writes (no phantom fan_boost/RAPL rows from non-root applies)",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 31076190,
+  "tracked_bytes_max": 27262976
+}
