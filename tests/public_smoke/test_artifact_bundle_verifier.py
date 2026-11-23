@@ -3436,7 +3436,7 @@ def test_artifact_affected_marks_contract_source_as_stale(tmp_path: Path) -> Non
     )
 
     affected = artifact_bundles.artifact_affected(
-        ["src/abyss_machine/artifact_bundles.py"],
+        ["src/abyss_machine/organs/artifacts/artifact_bundles.py"],
         artifact_class="public_source_seed",
         registry_dir=registry,
     )
@@ -3468,7 +3468,7 @@ def test_artifact_affected_keeps_rebuild_when_contract_source_and_abi_digest_are
     _rewrite_latest_record(registry, abi_subject_digest="sha256:" + "0" * 64)
 
     affected = artifact_bundles.artifact_affected(
-        ["src/abyss_machine/artifact_bundles.py"],
+        ["src/abyss_machine/organs/artifacts/artifact_bundles.py"],
         artifact_class="public_source_seed",
         registry_dir=registry,
     )
