@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 28977486,
+  "allowed_tracked_bytes": 30966689,
+  "approved_by": "repository-owner",
+  "base_ref": "d2b12dddf3c8e04fb9365b5946d0d58c11b582e2",
+  "changed_generated_bytes": 28977486,
+  "changed_generated_files": 383,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "377d47ceb5bf1dcd17fa78e858d0432e1d45363b00aa1d3759ccc04a117c187d",
+  "reason": "abyss-machine device-organ cleanup: organ split and dead-code removal move and delete large CLI regions",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 30966689,
+  "tracked_bytes_max": 27262976
+}
